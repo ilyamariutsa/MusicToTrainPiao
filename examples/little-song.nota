@@ -1,0 +1,10 @@
+id: little-song
+title: Маленькая песенка
+composer: Пример
+group: custom
+tempo: 88
+time: 4/4
+key: 0
+---
+RH: C4q.1 D4q.2 E4q.3 C4q.1 E4q.3 F4q.4 G4h.5 G4q.5 F4q.4 E4q.3 D4q.2 C4h.1
+LH: C3h.5 G2h.1 C3h.5 G2h.1 C3h.5 G2h.1 C3w.5
