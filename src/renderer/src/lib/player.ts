@@ -1,6 +1,6 @@
 import type { Hand, Piece, ScoreNote } from '../types'
 import { getTransport, playNotes, releaseAll, Tone } from './audio'
-import { groupNotesAtTime, nextEventTime } from './theory'
+import { groupNotesAtTime, nextEventTime, noteHand } from './theory'
 
 export type PlayerCallbacks = {
   onCursor: (time: number, notes: ScoreNote[]) => void
@@ -9,8 +9,8 @@ export type PlayerCallbacks = {
 
 export function filterByHand(notes: ScoreNote[], hand: Hand): ScoreNote[] {
   if (hand === 'both') return notes
-  if (hand === 'right') return notes.filter((n) => n.clef === 'treble')
-  return notes.filter((n) => n.clef === 'bass')
+  if (hand === 'right') return notes.filter((n) => noteHand(n) === 'right')
+  return notes.filter((n) => noteHand(n) === 'left')
 }
 
 export class ScorePlayer {

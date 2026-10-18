@@ -6,7 +6,7 @@ import { initAudio, playNote } from '../lib/audio'
 import { midiFromKeyboardEvent } from '../lib/keyboardMap'
 import { subscribeMidi } from '../lib/midiInput'
 import { expectedMidis, firstEvent, ScorePlayer, stepEvent } from '../lib/player'
-import { beatsPerMeasure, beatsToRu, KEY_NAMES, midiToRu, pieceDuration, sectionBounds } from '../lib/theory'
+import { beatsToRu, KEY_NAMES, measureContaining, midiToRu, noteHand, phraseBounds } from '../lib/theory'
 import { useLibrary } from '../store'
 import { KEYBOARD_PRESETS, type Finger, type Hand, type Piece } from '../types'
 
@@ -46,13 +46,13 @@ export function PracticeView({ piece }: Props) {
   const cursorRef = useRef(cursor)
   cursorRef.current = cursor
 
-  const sections = useMemo(() => sectionBounds(piece.notes, piece.timeSignature), [piece])
-  const section = sections[sectionIdx] ?? sections[0]
+  const sections = useMemo(() => phraseBounds(piece), [piece])
+  const section = sections[Math.min(sectionIdx, sections.length - 1)] ?? sections[0]
   const sectionRef = useRef(section)
   sectionRef.current = section
-  const duration = pieceDuration(piece.notes)
+  const duration = sections[0]?.end ?? 0
   const currentNotes = useMemo(
-    () => piece.notes.filter((n) => Math.abs(n.time - cursor) < 0.03 && (hand === 'both' || (hand === 'right' ? n.clef === 'treble' : n.clef === 'bass'))),
+    () => piece.notes.filter((n) => Math.abs(n.time - cursor) < 0.03 && (hand === 'both' || noteHand(n) === hand)),
     [piece.notes, cursor, hand]
   )
   const fingers = useMemo(() => {
@@ -63,7 +63,7 @@ export function PracticeView({ piece }: Props) {
     return map
   }, [currentNotes])
 
-  const fromBeat = Math.max(0, Math.floor(cursor / beatsPerMeasure(piece.timeSignature)) * beatsPerMeasure(piece.timeSignature))
+  const fromBeat = measureContaining(piece, cursor).start
   const tempoRef = useRef(tempo)
   tempoRef.current = tempo
 
@@ -80,7 +80,7 @@ export function PracticeView({ piece }: Props) {
     const notes = current.notes.filter(
       (n) =>
         Math.abs(n.time - time) < 0.03 &&
-        (handRef.current === 'both' || (handRef.current === 'right' ? n.clef === 'treble' : n.clef === 'bass'))
+        (handRef.current === 'both' || noteHand(n) === handRef.current)
     )
     setCursor(time)
     setActiveIds(notes.map((n) => n.id))
@@ -97,6 +97,7 @@ export function PracticeView({ piece }: Props) {
     setHits(0)
     setMisses(0)
     setStepReady(false)
+    setSectionIdx(0)
     return () => {
       player.current.stop()
       const seconds = Math.round((Date.now() - startedAt.current) / 1000)
@@ -156,7 +157,7 @@ export function PracticeView({ piece }: Props) {
         const chord = current.notes.filter(
           (n) =>
             Math.abs(n.time - cursorRef.current) < 0.03 &&
-            (handRef.current === 'both' || (handRef.current === 'right' ? n.clef === 'treble' : n.clef === 'bass'))
+            (handRef.current === 'both' || noteHand(n) === handRef.current)
         )
         applyHold(chord)
         hitsRef.current += 1
@@ -292,16 +293,6 @@ export function PracticeView({ piece }: Props) {
             <option value="left">Левая</option>
           </select>
         </label>
-        <label>
-          Фраза
-          <select value={sectionIdx} onChange={(e) => setSectionIdx(Number(e.target.value))}>
-            {sections.map((s, i) => (
-              <option key={s.label} value={i}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
         <label className="tempo">
           Темп {tempo} (пьеса {piece.tempo})
           <input type="range" min={36} max={160} value={tempo} onChange={(e) => setTempo(Number(e.target.value))} />
@@ -320,16 +311,32 @@ export function PracticeView({ piece }: Props) {
             Жди меня
           </button>
           <button type="button" className="btn ghost" disabled={playing && mode === 'listen'} onClick={() => void startListen()}>
-            Слушать
+            {sectionIdx === 0 ? 'Слушать всё' : 'Слушать фразу'}
           </button>
           <button type="button" className="btn ghost" onClick={stop}>
             Стоп
           </button>
         </div>
       </div>
+      <div className="phrase-rail" role="tablist" aria-label="Фразы">
+        {sections.map((item, index) => (
+          <button
+            key={`${item.label}-${item.start}`}
+            type="button"
+            role="tab"
+            aria-selected={index === sectionIdx}
+            className={index === sectionIdx ? 'phrase-chip active' : 'phrase-chip'}
+            onClick={() => setSectionIdx(index)}
+          >
+            <strong>{item.label}</strong>
+            <span>{item.detail}</span>
+          </button>
+        ))}
+      </div>
       <p className="hint">
-        Учите фразу по одной ноте: смотрите стан над клавиатурой, затем линию от клавиши к ноте внизу. Темп по
-        умолчанию вдвое ниже нотного — так проще запомнить.
+        {sectionIdx === 0
+          ? 'Сейчас выбрана вся пьеса. Можно слушать её целиком или открыть одну фразу и учить её отдельно.'
+          : `${section.label}: ${section.detail}. «Слушать фразу» играет только её, «Вся пьеса» — произведение с начала.`}
       </p>
 
       <div className="score-panel">
@@ -338,7 +345,7 @@ export function PracticeView({ piece }: Props) {
           {stepReady
             ? 'Верно. Посмотрите линию от клавиши к ноте и нажмите «Дальше»'
             : currentNotes.length
-              ? currentNotes.map((n) => `${midiToRu(n.midi)} · ${beatsToRu(n.duration)}`).join('   ·   ')
+              ? currentNotes.map((n) => `${midiToRu(n.midi, piece.keySignature)} · ${beatsToRu(n.duration)}`).join('   ·   ')
               : 'Первая нота фразы откроется сразу. Если пусто — нажмите «По одной ноте»'}
         </div>
       </div>

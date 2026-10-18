@@ -11,7 +11,17 @@ export interface ScoreNote {
   duration: number
   time: number
   clef: Clef
+  /** Grand-staff position: 1 upper, 2 lower. Independent of the written clef. */
+  staff?: 1 | 2
+  voice?: number
   finger?: Finger
+}
+
+export interface ScoreBar {
+  start: number
+  end: number
+  signature: [number, number]
+  number: number
 }
 
 export interface Piece {
@@ -26,6 +36,8 @@ export interface Piece {
   keySignature: number
   tempo: number
   notes: ScoreNote[]
+  /** One entry per measure, including meter changes. */
+  bars?: ScoreBar[]
   createdAt: string
   lastPracticedAt?: string
   practiceSeconds: number

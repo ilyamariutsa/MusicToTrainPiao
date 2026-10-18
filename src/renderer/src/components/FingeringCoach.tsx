@@ -1,3 +1,4 @@
+import { noteHand } from '../lib/theory'
 import type { ScoreNote } from '../types'
 
 type Props = {
@@ -7,8 +8,8 @@ type Props = {
 const ORDER: Array<1 | 2 | 3 | 4 | 5> = [1, 2, 3, 4, 5]
 
 export function FingeringCoach({ notes }: Props) {
-  const right = notes.filter((n) => n.clef === 'treble')
-  const left = notes.filter((n) => n.clef === 'bass')
+  const right = notes.filter((n) => noteHand(n) === 'right')
+  const left = notes.filter((n) => noteHand(n) === 'left')
 
   return (
     <div className={notes.length ? 'finger-coach' : 'finger-coach idle'}>

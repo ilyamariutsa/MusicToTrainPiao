@@ -1,5 +1,5 @@
 import type { Finger, ScoreNote } from '../types'
-import { isWhiteKey } from './theory'
+import { isWhiteKey, noteHand } from './theory'
 
 const TIME_EPS = 0.03
 
@@ -310,18 +310,18 @@ export function assignFingering(notes: ScoreNote[], opts?: { overwrite?: boolean
   }
 
   applyHand(
-    notes.filter((note) => note.clef === 'treble'),
+    notes.filter((note) => noteHand(note) === 'right'),
     true
   )
   applyHand(
-    notes.filter((note) => note.clef === 'bass'),
+    notes.filter((note) => noteHand(note) === 'left'),
     false
   )
 
-  for (const group of groupByTime(notes.filter((note) => note.clef === 'treble'))) {
+  for (const group of groupByTime(notes.filter((note) => noteHand(note) === 'right'))) {
     sanitizeChordGroup(group, true)
   }
-  for (const group of groupByTime(notes.filter((note) => note.clef === 'bass'))) {
+  for (const group of groupByTime(notes.filter((note) => noteHand(note) === 'left'))) {
     sanitizeChordGroup(group, false)
   }
 

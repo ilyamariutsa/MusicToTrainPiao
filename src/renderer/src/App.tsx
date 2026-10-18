@@ -53,7 +53,7 @@ function Shell() {
               <img className="logo" src={appIcon} alt="" width={42} height={42} />
               <div>
                 <strong>NotaMentor</strong>
-                <em>1.1.3</em>
+                <em>1.2.0</em>
               </div>
             </div>
             <button

@@ -2,6 +2,7 @@ import { Midi } from '@tonejs/midi'
 import type { Piece, ScoreNote } from '../types'
 import { estimateDifficulty } from './difficulty'
 import { assignFingering } from './fingering'
+import { humanizeFileName, isGenericCredit } from './pieceTitle'
 import { uid } from './theory'
 
 export function importMidi(buffer: ArrayBuffer, fileName: string): Piece {
@@ -25,12 +26,16 @@ export function importMidi(buffer: ArrayBuffer, fileName: string): Piece {
   assignFingering(notes)
   notes.sort((a, b) => a.time - b.time || a.midi - b.midi)
 
-  const title = midi.header.name?.trim() || fileName.replace(/\.(mid|midi)$/i, '')
+  const fromFile = humanizeFileName(fileName)
+  const headerTitle = midi.header.name?.trim() ?? ''
+  const title = !isGenericCredit(headerTitle) && !headerTitle.includes('_') ? headerTitle : fromFile.title
+  const composerCredit = trackComposer(midi)
+  const composer = !isGenericCredit(composerCredit) ? composerCredit : fromFile.composer || 'Неизвестный автор'
 
   return {
     id: uid('imp'),
     title,
-    composer: trackComposer(midi) || 'Импорт MIDI',
+    composer,
     source: 'imported',
     group: estimateDifficulty({ notes, tempo }),
     favorite: false,

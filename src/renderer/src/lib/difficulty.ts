@@ -1,4 +1,5 @@
 import type { Piece, PieceGroup } from '../types'
+import { noteHand } from './theory'
 
 export function estimateDifficulty(piece: Pick<Piece, 'notes' | 'tempo'>): PieceGroup {
   const notes = piece.notes
@@ -8,14 +9,14 @@ export function estimateDifficulty(piece: Pick<Piece, 'notes' | 'tempo'>): Piece
   let bothHands = 0
   for (const time of times) {
     const at = notes.filter((n) => Math.abs(n.time - time) < 0.03)
-    if (at.some((n) => n.clef === 'treble') && at.some((n) => n.clef === 'bass')) bothHands += 1
+    if (at.some((n) => noteHand(n) === 'right') && at.some((n) => noteHand(n) === 'left')) bothHands += 1
   }
 
   const shortest = Math.min(...notes.map((n) => n.duration))
   const accidentals = notes.filter((n) => [1, 3, 6, 8, 10].includes(((n.midi % 12) + 12) % 12)).length
   const byClef = {
-    treble: notes.filter((n) => n.clef === 'treble').sort((a, b) => a.time - b.time),
-    bass: notes.filter((n) => n.clef === 'bass').sort((a, b) => a.time - b.time)
+    treble: notes.filter((n) => noteHand(n) === 'right').sort((a, b) => a.time - b.time),
+    bass: notes.filter((n) => noteHand(n) === 'left').sort((a, b) => a.time - b.time)
   }
   const maxJump = Math.max(jump(byClef.treble), jump(byClef.bass), 0)
 

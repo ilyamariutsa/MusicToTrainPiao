@@ -45,7 +45,7 @@ function createWindow(): BrowserWindow {
     height: 880,
     minWidth: 1080,
     minHeight: 720,
-    backgroundColor: '#14110e',
+    backgroundColor: '#090b10',
     title: 'NotaMentor',
     icon: app.isPackaged ? join(process.resourcesPath, 'icon.ico') : join(__dirname, '../../build/icon.ico'),
     show: false,

@@ -1,4 +1,4 @@
-import type { Finger, ScoreNote } from '../types'
+import type { Finger, Piece, ScoreBar, ScoreNote } from '../types'
 
 export const NOTE_NAMES_SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 export const NOTE_NAMES_FLAT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
@@ -148,24 +148,108 @@ export function beatsPerMeasure(timeSignature: [number, number]): number {
   return (timeSignature[0] * 4) / timeSignature[1]
 }
 
-export function sectionBounds(notes: ScoreNote[], timeSignature: [number, number], measuresPerSection = 4) {
-  const total = pieceDuration(notes)
-  const bpm = beatsPerMeasure(timeSignature)
-  const sectionBeats = bpm * measuresPerSection
-  const sections: Array<{ label: string; start: number; end: number }> = [
-    { label: 'Всё произведение', start: 0, end: total }
-  ]
-  if (total <= sectionBeats) return sections
+/** Upper staff is the right hand even when both staves are written in treble. */
+export function noteHand(note: ScoreNote): 'right' | 'left' {
+  if (note.staff === 1) return 'right'
+  if (note.staff === 2) return 'left'
+  return note.clef === 'bass' ? 'left' : 'right'
+}
+
+export function pieceBars(piece: Pick<Piece, 'notes' | 'timeSignature' | 'bars'>): ScoreBar[] {
+  if (piece.bars && piece.bars.length > 0) return piece.bars
+  const beats = Math.max(0.25, beatsPerMeasure(piece.timeSignature))
+  const total = Math.max(pieceDuration(piece.notes), beats)
+  const bars: ScoreBar[] = []
+  for (let start = 0, number = 1; start < total - 0.001; start += beats, number += 1) {
+    bars.push({
+      start: roundBeat(start),
+      end: roundBeat(start + beats),
+      signature: piece.timeSignature,
+      number
+    })
+  }
+  return bars
+}
+
+export function measureContaining(piece: Pick<Piece, 'notes' | 'timeSignature' | 'bars'>, time: number): ScoreBar {
+  const bars = pieceBars(piece)
+  return (
+    bars.find((bar) => time >= bar.start - 0.001 && time < bar.end - 0.001) ??
+    bars[bars.length - 1] ?? {
+      start: 0,
+      end: beatsPerMeasure(piece.timeSignature),
+      signature: piece.timeSignature,
+      number: 1
+    }
+  )
+}
+
+export type PhraseSpan = {
+  label: string
+  detail: string
+  start: number
+  end: number
+}
+
+/** Whole piece plus a handful of practice phrases, about eight on a long work. */
+export function phraseBounds(piece: Pick<Piece, 'notes' | 'timeSignature' | 'bars'>): PhraseSpan[] {
+  const bars = pieceBars(piece)
+  const total = Math.max(pieceDuration(piece.notes), bars[bars.length - 1]?.end ?? 0)
+  const all: PhraseSpan = {
+    label: 'Вся пьеса',
+    detail: bars.length ? `${bars.length} тактов` : 'целиком',
+    start: 0,
+    end: total
+  }
+  if (bars.length <= 1) return [all]
+  const per = barsPerPhrase(bars.length, bars[0].signature[1])
+  const phrases: PhraseSpan[] = [all]
   let index = 1
-  for (let start = 0; start < total; start += sectionBeats) {
-    sections.push({
+  for (let i = 0; i < bars.length; i += per) {
+    const slice = bars.slice(i, i + per)
+    const from = slice[0].number
+    const to = slice[slice.length - 1].number
+    phrases.push({
       label: `Фраза ${index}`,
-      start,
-      end: Math.min(start + sectionBeats, total)
+      detail: from === to ? `такт ${from}` : `такты ${from}–${to}`,
+      start: slice[0].start,
+      end: slice[slice.length - 1].end
     })
     index += 1
   }
-  return sections
+  return phrases
+}
+
+function barsPerPhrase(count: number, beatType: number): number {
+  if (count <= 4) return count
+  const min = beatType >= 8 ? 8 : 4
+  if (count <= min * 2) return min
+  return Math.max(min, Math.round(count / 8))
+}
+
+export function roundBeat(value: number): number {
+  return Math.round(value * 1000) / 1000
+}
+
+const SHARP_LETTERS = ['F', 'C', 'G', 'D', 'A', 'E', 'B']
+const FLAT_LETTERS = ['B', 'E', 'A', 'D', 'G', 'C', 'F']
+
+/** Accidental to print, or nothing when the key signature already spells the note. */
+export function displayAccidental(midi: number, keySignature = 0): '#' | 'b' | 'n' | undefined {
+  const name = midiToName(midi, keySignature)
+  const pitch = name.replace(/-?\d+$/, '')
+  const letter = pitch[0]?.toUpperCase() ?? 'C'
+  const alter = pitch.includes('#') ? 1 : pitch.includes('b') ? -1 : 0
+  const inKey = keyAlter(letter, keySignature)
+  if (alter === inKey) return undefined
+  if (alter === 0) return 'n'
+  return alter > 0 ? '#' : 'b'
+}
+
+function keyAlter(letter: string, fifths: number): number {
+  if (fifths > 0 && SHARP_LETTERS.slice(0, fifths).includes(letter)) return 1
+  if (fifths < 0 && FLAT_LETTERS.slice(0, -fifths).includes(letter)) return -1
+  return 0
 }
 
 export function isWhiteKey(midi: number): boolean {

@@ -1,149 +1,317 @@
 import { XMLParser } from 'fast-xml-parser'
 import JSZip from 'jszip'
-import type { Clef, Piece, ScoreNote } from '../types'
+import type { Clef, Piece, ScoreBar, ScoreNote } from '../types'
 import { estimateDifficulty } from './difficulty'
 import { assignFingering } from './fingering'
-import { uid } from './theory'
+import { humanizeFileName, isGenericCredit } from './pieceTitle'
+import { roundBeat, uid } from './theory'
 
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
+  preserveOrder: true,
   trimValues: true
 })
 
-function asArray<T>(value: T | T[] | undefined): T[] {
-  if (!value) return []
-  return Array.isArray(value) ? value : [value]
-}
+type XNode = Record<string, unknown>
 
-function text(value: unknown): string {
-  if (value == null) return ''
-  if (typeof value === 'object' && value && '#text' in value) return String((value as { '#text': string })['#text'])
-  return String(value)
-}
-
-function num(value: unknown, fallback = 0): number {
-  const n = Number(text(value))
-  return Number.isFinite(n) ? n : fallback
-}
+const STEP: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }
 
 export async function importMusicXml(buffer: ArrayBuffer, fileName: string, ext: string): Promise<Piece> {
   let xml = ''
   if (ext === 'mxl') {
     const zip = await JSZip.loadAsync(buffer)
-    const names = Object.keys(zip.files).filter((n) => n.endsWith('.xml') && !n.startsWith('META-INF'))
-    const target = names[0]
+    const names = Object.keys(zip.files).filter((name) => name.endsWith('.xml') && !name.startsWith('META-INF'))
+    const target = names.find((name) => name.endsWith('score.xml')) ?? names[0]
     if (!target) throw new Error('В MXL-архиве нет MusicXML')
     xml = await zip.files[target].async('string')
   } else {
     xml = new TextDecoder('utf-8').decode(buffer)
   }
 
-  const doc = parser.parse(xml)
-  const score = doc['score-partwise'] ?? doc['score-timewise']
-  if (!score) throw new Error('Это не MusicXML партитура')
+  const doc = parser.parse(xml) as XNode[]
+  const score = doc.find((node) => tagName(node) === 'score-partwise')
+  if (!score) throw new Error('Нужна партитура MusicXML partwise. Timewise-файлы пока не читаются.')
 
-  const workTitle =
-    text(score.work?.['work-title']) ||
-    text(score['movement-title']) ||
-    fileName.replace(/\.(musicxml|xml|mxl)$/i, '')
-  const composer =
-    asArray(score.identification?.creator)
-      .find((c) => text(c?.['@_type']) === 'composer' || !c?.['@_type'])
-      ?.['#text'] ?? 'Импорт MusicXML'
+  const fromFile = humanizeFileName(fileName)
+  const workTitle = textChild(score, 'work', 'work-title') || textChild(score, 'movement-title')
+  const composerCredit = creatorName(score)
+  const title = !isGenericCredit(workTitle) ? cleanCredit(workTitle) : fromFile.title
+  const composer = !isGenericCredit(composerCredit) ? cleanCredit(composerCredit) : fromFile.composer || 'Неизвестный автор'
 
-  const parts = asArray(score.part)
+  const parts = children(score).filter((node) => tagName(node) === 'part')
   const notes: ScoreNote[] = []
-  let tempo = 90
-  let timeSignature: [number, number] = [4, 4]
-  let keySignature = 0
+  const bars: ScoreBar[] = []
+  let tempo = 0
+  let openingTime: [number, number] = [4, 4]
+  let openingKey = 0
+  let musicalNumber = 1
 
-  for (const part of parts) {
+  parts.forEach((part, partIndex) => {
     let divisions = 1
-    let currentClef: Clef = 'treble'
+    let timeSignature: [number, number] = openingTime
+    let keySignature = openingKey
     const clefByStaff = new Map<number, Clef>()
-    let absTime = 0
+    let stavesInPart = 1
+    let partTime = 0
+    const measures = children(part).filter((node) => tagName(node) === 'measure')
 
-    for (const measure of asArray(part.measure)) {
-      const attrs = measure.attributes
-      if (attrs?.divisions) divisions = num(attrs.divisions, divisions)
-      if (attrs?.time) {
-        timeSignature = [num(asArray(attrs.time)[0].beats, 4), num(asArray(attrs.time)[0]['beat-type'], 4)]
-      }
-      if (attrs?.key?.fifths != null) keySignature = num(attrs.key.fifths, 0)
-      for (const clef of asArray(attrs?.clef)) {
-        const sign = text(clef.sign).toUpperCase()
-        const staff = num(clef['@_number'], 1)
-        const mapped: Clef = sign === 'F' ? 'bass' : 'treble'
-        clefByStaff.set(staff, mapped)
-        if (staff === 1) currentClef = mapped
-      }
-
-      const directionTempo = asArray(measure.direction)
-        .flatMap((d) => asArray(d['sound'] ?? d.sound))
-        .map((s) => num(s?.['@_tempo'], 0))
-        .find((n) => n > 0)
-      if (directionTempo) tempo = Math.round(directionTempo)
-
-      let measureTime = 0
+    measures.forEach((measure, measureIndex) => {
+      let cursor = 0
       let lastDuration = 0
-
-      for (const ev of asArray(measure.note)) {
-        const isChord = ev.chord != null
-        const isRest = ev.rest != null
-        const durationDiv = num(ev.duration, divisions)
-        const beats = durationDiv / divisions
-        if (isChord) {
-          measureTime -= lastDuration
-        }
-        if (ev['grace'] != null) continue
-
-        const staff = num(ev.staff, 1)
-        const clef = clefByStaff.get(staff) ?? (ev.pitch && num(ev.pitch.octave, 4) < 4 ? 'bass' : currentClef)
-
-        if (!isRest && ev.pitch) {
-          const step = text(ev.pitch.step).toUpperCase()
-          const alter = num(ev.pitch.alter, 0)
-          const octave = num(ev.pitch.octave, 4)
-          const base: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }
-          const midi = (octave + 1) * 12 + (base[step] ?? 0) + alter
-          const fingerRaw = asArray(ev.notations)
-            .flatMap((n) => asArray(n.technical))
-            .map((t) => num(t.fingering, 0))
-            .find((n) => n >= 1 && n <= 5)
-
-          notes.push({
-            id: uid('n'),
-            midi,
-            duration: Math.max(0.125, beats),
-            time: absTime + measureTime,
-            clef,
-            finger: fingerRaw ? (fingerRaw as 1 | 2 | 3 | 4 | 5) : undefined
-          })
-        }
-
-        lastDuration = beats
-        measureTime += beats
+      let high = 0
+      const measureStart = partTime
+      const mark = (): void => {
+        if (cursor > high) high = cursor
       }
-      absTime += (timeSignature[0] * 4) / timeSignature[1]
-    }
-  }
 
-  assignFingering(notes)
-  notes.sort((a, b) => a.time - b.time || a.midi - b.midi)
+      for (const el of children(measure)) {
+        const tag = tagName(el)
+        if (tag === 'attributes') {
+          const next = readAttributes(el, divisions, timeSignature, keySignature, clefByStaff)
+          divisions = next.divisions
+          timeSignature = next.timeSignature
+          keySignature = next.keySignature
+          if (next.staves > stavesInPart) stavesInPart = next.staves
+          if (bars.length === 0 && partIndex === 0 && measureIndex === 0) {
+            openingTime = timeSignature
+            openingKey = keySignature
+          }
+        } else if (tag === 'direction') {
+          const found = readTempo(el)
+          if (found > 0 && tempo === 0) tempo = found
+        } else if (tag === 'backup') {
+          cursor = Math.max(0, cursor - durationBeats(el, divisions))
+        } else if (tag === 'forward') {
+          cursor += durationBeats(el, divisions)
+          mark()
+        } else if (tag === 'note') {
+          if (has(el, 'grace') || has(el, 'cue')) continue
+          const isChord = has(el, 'chord')
+          const beats = durationBeats(el, divisions) || lastDuration || 0.25
+          if (isChord) cursor = Math.max(0, cursor - lastDuration)
+          if (!has(el, 'rest')) {
+            const pitch = child(el, 'pitch')
+            if (pitch) {
+              const step = textOf(child(pitch, 'step')).toUpperCase()
+              const alter = numberOf(child(pitch, 'alter'))
+              const octave = numberOf(child(pitch, 'octave'), 4)
+              const staffNo = numberOf(child(el, 'staff'), 1)
+              const staff = resolveStaff(partIndex, staffNo, stavesInPart)
+              const clef = clefByStaff.get(staffNo) ?? (staff === 2 ? 'bass' : 'treble')
+              const finger = readFinger(el)
+              notes.push({
+                id: uid('n'),
+                midi: (octave + 1) * 12 + (STEP[step] ?? 0) + alter,
+                duration: roundBeat(Math.max(0.125, beats)),
+                time: roundBeat(measureStart + cursor),
+                clef,
+                staff,
+                voice: numberOf(child(el, 'voice'), staff === 2 ? 5 : 1),
+                finger
+              })
+            }
+          }
+          lastDuration = beats
+          cursor += beats
+          mark()
+        }
+      }
+
+      const declared = roundBeat((timeSignature[0] * 4) / timeSignature[1])
+      const lengths = barLengths(declared, high)
+      for (const length of lengths) {
+        if (partIndex === 0) {
+          bars.push({
+            start: roundBeat(partTime),
+            end: roundBeat(partTime + length),
+            signature: timeSignature,
+            number: musicalNumber
+          })
+          musicalNumber += 1
+        }
+        partTime = roundBeat(partTime + length)
+      }
+    })
+  })
+
+  if (notes.length === 0) throw new Error('В файле не нашлось ни одной ноты')
+  if (tempo <= 0) tempo = 96
+
+  const fitted = fitNotesToBars(notes, bars)
+  assignFingering(fitted)
+  fitted.sort((a, b) => a.time - b.time || a.midi - b.midi)
 
   return {
     id: uid('imp'),
-    title: String(workTitle),
-    composer: String(composer),
+    title,
+    composer,
     source: 'imported',
     group: estimateDifficulty({ notes, tempo }),
     favorite: false,
-    timeSignature,
-    keySignature,
-    tempo,
-    notes,
+    timeSignature: openingTime,
+    keySignature: openingKey,
+    tempo: Math.round(tempo),
+    notes: fitted,
+    bars,
     createdAt: new Date().toISOString(),
     practiceSeconds: 0
   }
+}
+
+/** OCR exports sometimes glue several bars into one MusicXML measure. */
+function barLengths(declared: number, content: number): number[] {
+  const full = declared > 0 ? declared : 1
+  if (content < 0.05) return [full]
+  const lengths: number[] = []
+  let left = content
+  const sliver = full * 0.2
+  while (left > sliver) {
+    if (left <= full + sliver) {
+      lengths.push(roundBeat(left))
+      break
+    }
+    lengths.push(full)
+    left = roundBeat(left - full)
+  }
+  return lengths.length ? lengths : [full]
+}
+
+function fitNotesToBars(notes: ScoreNote[], bars: ScoreBar[]): ScoreNote[] {
+  if (bars.length === 0) return notes
+  const fitted: ScoreNote[] = []
+  for (const note of notes) {
+    let time = note.time
+    let duration = note.duration
+    let piece = note
+    for (let guard = 0; duration > 0.02 && guard < 24; guard += 1) {
+      const bar =
+        bars.find((item) => time >= item.start - 0.001 && time < item.end - 0.001) ?? bars[bars.length - 1]
+      const room = roundBeat(bar.end - time)
+      if (room <= 0.02) break
+      if (duration <= room + 0.02) {
+        fitted.push({ ...piece, time: roundBeat(time), duration: roundBeat(duration) })
+        break
+      }
+      fitted.push({ ...piece, time: roundBeat(time), duration: room })
+      time = roundBeat(time + room)
+      duration = roundBeat(duration - room)
+      piece = { ...note, id: uid('n') }
+    }
+  }
+  return fitted
+}
+
+function resolveStaff(partIndex: number, staffNo: number, stavesInPart: number): 1 | 2 {
+  if (stavesInPart >= 2) return staffNo >= 2 ? 2 : 1
+  return partIndex > 0 ? 2 : 1
+}
+
+function readAttributes(
+  node: XNode,
+  divisions: number,
+  timeSignature: [number, number],
+  keySignature: number,
+  clefByStaff: Map<number, Clef>
+): { divisions: number; timeSignature: [number, number]; keySignature: number; staves: number } {
+  const divisionNode = child(node, 'divisions')
+  if (divisionNode) divisions = numberOf(divisionNode, divisions) || divisions
+  const time = child(node, 'time')
+  if (time) {
+    timeSignature = [numberOf(child(time, 'beats'), 4) || 4, numberOf(child(time, 'beat-type'), 4) || 4]
+  }
+  const key = child(node, 'key')
+  if (key && child(key, 'fifths')) keySignature = numberOf(child(key, 'fifths'), keySignature)
+  const staves = numberOf(child(node, 'staves'), 1)
+  for (const clef of children(node).filter((item) => tagName(item) === 'clef')) {
+    const sign = textOf(child(clef, 'sign')).toUpperCase()
+    const staff = Number(attr(clef, 'number')) || 1
+    clefByStaff.set(staff, sign === 'F' ? 'bass' : 'treble')
+  }
+  return { divisions, timeSignature, keySignature, staves }
+}
+
+function readTempo(direction: XNode): number {
+  const sound = child(direction, 'sound')
+  const fromSound = Number(attr(sound, 'tempo'))
+  if (fromSound > 0) return fromSound
+  const typed = child(direction, 'direction-type')
+  const metro = child(typed, 'metronome')
+  const perMinute = numberOf(child(metro, 'per-minute'))
+  return perMinute > 0 ? perMinute : 0
+}
+
+function readFinger(note: XNode): 1 | 2 | 3 | 4 | 5 | undefined {
+  const notations = child(note, 'notations')
+  const technical = child(notations, 'technical')
+  const value = numberOf(child(technical, 'fingering'))
+  if (value >= 1 && value <= 5) return value as 1 | 2 | 3 | 4 | 5
+  return undefined
+}
+
+function durationBeats(node: XNode | undefined, divisions: number): number {
+  const raw = numberOf(child(node, 'duration'))
+  if (!raw || divisions <= 0) return 0
+  return raw / divisions
+}
+
+function creatorName(score: XNode): string {
+  const identification = child(score, 'identification')
+  const creators = children(identification).filter((node) => tagName(node) === 'creator')
+  const composer = creators.find((node) => attr(node, 'type') === 'composer') ?? creators[0]
+  return textContent(composer)
+}
+
+function cleanCredit(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function tagName(node: XNode | undefined): string {
+  if (!node) return ''
+  return Object.keys(node).find((key) => key !== ':@') ?? ''
+}
+
+function children(node: XNode | undefined): XNode[] {
+  if (!node) return []
+  const value = node[tagName(node)]
+  return Array.isArray(value) ? (value as XNode[]) : []
+}
+
+function child(node: XNode | undefined, name: string): XNode | undefined {
+  return children(node).find((item) => tagName(item) === name)
+}
+
+function has(node: XNode | undefined, name: string): boolean {
+  return children(node).some((item) => tagName(item) === name)
+}
+
+function attr(node: XNode | undefined, name: string): string {
+  const attrs = node?.[':@'] as Record<string, string> | undefined
+  return attrs?.[`@_${name}`] ?? ''
+}
+
+function textContent(node: XNode | undefined): string {
+  if (!node) return ''
+  const value = node[tagName(node)]
+  if (typeof value === 'string' || typeof value === 'number') return String(value)
+  if (Array.isArray(value)) {
+    const text = (value as XNode[]).find((item) => item['#text'] != null)
+    if (text) return String(text['#text'])
+  }
+  return ''
+}
+
+function textOf(node: XNode | undefined): string {
+  return textContent(node).trim()
+}
+
+function textChild(node: XNode | undefined, first: string, second?: string): string {
+  const mid = child(node, first)
+  if (!second) return textContent(mid).trim()
+  return textContent(child(mid, second)).trim()
+}
+
+function numberOf(node: XNode | undefined, fallback = 0): number {
+  const value = Number(textContent(node))
+  return Number.isFinite(value) ? value : fallback
 }
