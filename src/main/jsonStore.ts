@@ -1,7 +1,27 @@
 import { closeSync, copyFileSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'fs'
 
+/**
+ * Reads the text, retrying briefly: antivirus or the search indexer can hold a file for
+ * a moment. A file that still cannot be read throws — that is not the same as broken JSON.
+ */
+function readText(file: string): string {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return readFileSync(file, 'utf-8')
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (attempt >= 4 || (code !== 'EBUSY' && code !== 'EPERM' && code !== 'EACCES')) throw err
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60)
+    }
+  }
+}
+
 function parseFile<T>(file: string): T {
-  return JSON.parse(readFileSync(file, 'utf-8')) as T
+  return JSON.parse(readText(file)) as T
+}
+
+function isParseError(err: unknown): boolean {
+  return err instanceof SyntaxError
 }
 
 /** Keep a broken file for manual recovery instead of overwriting it on the next save. */
@@ -16,12 +36,14 @@ function quarantine(file: string): void {
 /**
  * Reads JSON written by {@link writeJson}. A broken file is set aside and the
  * previous good version (`.bak`) is used, so the library is never silently lost.
+ * A file that exists but cannot be read throws, so the app does not mistake it for empty.
  */
 export function readJson<T>(file: string, fallback: T): T {
   if (existsSync(file)) {
     try {
       return parseFile<T>(file)
-    } catch {
+    } catch (err) {
+      if (!isParseError(err)) throw err
       quarantine(file)
     }
   }

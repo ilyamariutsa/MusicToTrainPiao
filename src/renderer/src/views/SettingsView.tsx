@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { initAudio, playNotes } from '../lib/audio'
 import { listMidiInputs } from '../lib/midiInput'
-import { useLibrary } from '../store'
+import { currentStreak, useLibrary } from '../store'
 import { KEYBOARD_PRESETS, type KeyCount } from '../types'
 
 export function SettingsView() {
@@ -140,7 +140,7 @@ export function SettingsView() {
       <section className="panel">
         <h2>Данные</h2>
         <p>
-          Всего практики: {Math.round(stats.totalPracticeSeconds / 60)} мин · серия {stats.streakDays} дн. · разминок{' '}
+          Всего практики: {Math.round(stats.totalPracticeSeconds / 60)} мин · серия {currentStreak(stats)} дн. · разминок{' '}
           {stats.warmupSessions}
         </p>
         <button

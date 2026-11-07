@@ -36,10 +36,16 @@ export function TrainerView() {
   /** Only the first answer to a note counts, and never after a peek. */
   const countedRef = useRef(false)
   const peekedRef = useRef(false)
+  /** Set once the right key is found: more presses wait for the next note. */
+  const solvedRef = useRef(false)
+  const nextTimer = useRef<number | null>(null)
   midiRef.current = midi
   scopeRef.current = scope
 
   const next = (nextScope = scope) => {
+    if (nextTimer.current != null) window.clearTimeout(nextTimer.current)
+    nextTimer.current = null
+    solvedRef.current = false
     const nextClef = pickClef(nextScope)
     setClef(nextClef)
     setMidi(randomMidi(nextClef))
@@ -63,24 +69,25 @@ export function TrainerView() {
       if (value != null) void answer(value)
     }
     window.addEventListener('keydown', onKey)
-    let unsub = () => undefined as void
-    void subscribeMidi((value, velocity, on) => {
+    const unsub = subscribeMidi((value, velocity, on) => {
       if (on) void answer(value, velocity)
-    }).then((fn) => {
-      unsub = fn
     })
     return () => {
       window.removeEventListener('keydown', onKey)
       unsub()
+      if (nextTimer.current != null) window.clearTimeout(nextTimer.current)
     }
   }, [])
 
   async function answer(value: number, velocity = 0.8) {
     await initAudio()
     playNote(value, 0.4, velocity)
+    if (solvedRef.current) return
     const expected = midiRef.current
     const ok = value === expected
+    if (ok) solvedRef.current = true
     const counts = !countedRef.current && !peekedRef.current
+    const peekedBefore = peekedRef.current
     countedRef.current = true
     setReveal(true)
     if (counts) await recordTrainer(ok)
@@ -89,9 +96,11 @@ export function TrainerView() {
       setMessage(
         counts
           ? `Верно: ${midiToRu(expected)} (${midiToName(expected)})`
-          : `Да, это ${midiToRu(expected)}. С подсказкой — в статистику не идёт`
+          : peekedBefore
+            ? `Да, это ${midiToRu(expected)}. С подсказкой — в статистику не идёт`
+            : `Да, это ${midiToRu(expected)}. В статистику идёт первый ответ`
       )
-      window.setTimeout(() => next(scopeRef.current), 700)
+      nextTimer.current = window.setTimeout(() => next(scopeRef.current), 700)
     } else {
       setWrong([value])
       setFlash([expected])

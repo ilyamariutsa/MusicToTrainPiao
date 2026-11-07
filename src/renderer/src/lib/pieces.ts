@@ -6,7 +6,8 @@ import { uid } from './theory'
 function builtin(dsl: string): Piece {
   try {
     const piece = parseNotaDsl(dsl)
-    assignFingering(piece.notes, { overwrite: true })
+    // Fingers written below are the teacher's; the rest are suggested.
+    assignFingering(piece.notes, { overwrite: false })
     piece.source = 'builtin'
     piece.createdAt = '2026-01-01T00:00:00.000Z'
     return piece
@@ -16,6 +17,8 @@ function builtin(dsl: string): Piece {
   }
 }
 
+// Built-in pieces in the .nota format (see README). Both hands add up to the same length;
+// upbeats are written with `pickup:`, rests with `r`. Fingers after a dot are the teacher's.
 const RAW = [
   `
 id: yolochka
@@ -25,9 +28,10 @@ group: beginner
 tempo: 96
 time: 2/4
 key: 0
+pickup: e
 ---
 RH: G4e E5e E5e D5e E5e C5e G4e G4e G4e E5e E5e F5e D5e G5qd G5e A5e A5e F5e F5e E5e D5e C5e C5e E5e E5e D5e E5e C5qd
-LH: C3h G2h C3h G2h F2h G2h C3h C3h
+LH: re C3h C3h G2h C3h F2h C3h G2h C3qd
 `,
   `
 id: ode-to-joy
@@ -39,31 +43,20 @@ time: 4/4
 key: 0
 ---
 RH: E4q.3 E4q.3 F4q.4 G4q.5 G4q.5 F4q.4 E4q.3 D4q.2 C4q.1 C4q.1 D4q.2 E4q.3 E4qd.3 D4e.2 D4h.2 E4q.3 E4q.3 F4q.4 G4q.5 G4q.5 F4q.4 E4q.3 D4q.2 C4q.1 C4q.1 D4q.2 E4q.3 D4qd.2 C4e.1 C4h.1
-LH: C3h.5 G2h.1 C3h.5 G2h.1 C3h.5 G2h.1 C3h.5 G2h.1 C3h.5 G2h.1 C3h.5 G2h.1 C3h.5 G2h.1 G2h.1 C3h.5
+LH: C3h G2h C3h G2h C3h G2h C3h G2h C3h G2h C3h G2h C3h G2h G2h C3h
 `,
   `
 id: happy-birthday
 title: С днём рождения
-composer: Народная
+composer: П. и М. Хилл
 group: beginner
 tempo: 92
 time: 3/4
 key: 0
+pickup: q
 ---
-RH: G4e.2 G4e.1 A4q.2 G4q.1 C5q.4 B4h.3 G4e.2 G4e.1 A4q.2 G4q.1 D5q.5 C5h.4 G4e.2 G4e.1 G5q.5 E5q.3 C5q.1 B4q.2 A4h.1 F5e.4 F5e.3 E5q.2 C5q.1 D5q.3 C5h.1
-LH: C3h.5 G2q.1 C3h.5 G2q.1 F2h.5 C3q.1 G2h.1 C3q.5 C3h.5 G2q.1 F2h.5 G2q.1 C3h.5 G2q.1
-`,
-  `
-id: let-run-clumsy
-title: Пусть бегут неуклюже
-composer: В. Шаинский
-group: beginner
-tempo: 108
-time: 4/4
-key: 0
----
-RH: G4q.4 E4q.2 G4q.4 E4q.2 G4q.4 A4q.5 G4h.4 F4q.3 D4q.1 F4q.3 D4q.1 F4q.3 G4q.4 F4h.3 E4q.2 E4q.2 F4q.3 G4q.4 A4q.5 G4q.4 C5h.5 G4q.4 F4q.3 E4q.2 D4q.1 C4w.1
-LH: C3h.5 G2h.1 C3h.5 G2h.1 G2h.1 D3h.2 G2h.1 D3h.2 C3h.5 G2h.1 C3h.5 E3h.3 G2h.1 G2h.1 C3w.5
+RH: G4e G4e A4q G4q C5q B4h G4e G4e A4q G4q D5q C5h G4e G4e G5q E5q C5q B4q A4q F5e F5e E5q C5q D5q C5h
+LH: rq C3hd G2hd G2hd C3hd C3hd F2hd C3h G2q C3h
 `,
   `
 id: twinkle
@@ -74,44 +67,46 @@ tempo: 90
 time: 4/4
 key: 0
 ---
-RH: C4q.1 C4q.1 G4q.4 G4q.4 A4q.5 A4q.5 G4h.4 F4q.3 F4q.3 E4q.2 E4q.2 D4q.1 D4q.1 C4h.1 G4q.4 G4q.4 F4q.3 F4q.3 E4q.2 E4q.2 D4h.1 G4q.4 G4q.4 F4q.3 F4q.3 E4q.2 E4q.2 D4h.1 C4q.1 C4q.1 G4q.4 G4q.4 A4q.5 A4q.5 G4h.4 F4q.3 F4q.3 E4q.2 E4q.2 D4q.1 D4q.1 C4h.1
-LH: C3h.5 G2h.1 C3h.5 G2h.1 F2h.5 C3h.2 G2h.5 C3h.1 C3h.5 G2h.1 C3h.5 G2h.1 C3h.5 G2h.1 C3h.5 G2h.1 C3h.5 G2h.1 F2h.5 C3h.2 G2h.5 C3h.1
+RH: C4q C4q G4q G4q A4q A4q G4h F4q F4q E4q E4q D4q D4q C4h G4q G4q F4q F4q E4q E4q D4h G4q G4q F4q F4q E4q E4q D4h C4q C4q G4q G4q A4q A4q G4h F4q F4q E4q E4q D4q D4q C4h
+LH: C3h C3h F2h C3h F2h C3h G2h C3h C3h F2h C3h G2h C3h F2h C3h G2h C3h C3h F2h C3h F2h C3h G2h C3h
 `,
   `
 id: minuet-g
 title: Менуэт соль мажор (начало)
-composer: И. С. Бах
+composer: Х. Петцольд
 group: intermediate
 tempo: 88
 time: 3/4
 key: 1
 ---
-RH: D5q.3 G4e.1 A4e.2 B4e.3 C5e.4 D5q.5 G4q.1 G4q.1 E5q.3 C5e.1 D5e.2 E5e.3 F#5e.4 G5q.5 G4q.1 G4q.1 C5q.3 D5e.4 C5e.3 B4e.2 A4e.1 B4q.2 C5e.3 B4e.2 A4e.1 G4e.2 A4q.3 B4e.4 A4e.3 G4e.2 F#4e.1 G4h.2
-LH: G2h.5 B2q.3 D3h.2 D3q.2 C3h.1 E3q.3 D3h.2 B2q.4 A2h.5 D3q.2 G2q.5 D3q.2 D3q.2 G3h.1
+RH: D5q.5 G4e.1 A4e.2 B4e.3 C5e.4 D5q.5 G4q.1 G4q.1 E5q.3 C5e.1 D5e.2 E5e.3 F#5e.4 G5q.5 G4q.1 G4q.1 C5q.3 D5e.4 C5e.3 B4e.2 A4e.1 B4q.2 C5e.3 B4e.2 A4e.1 G4e.2 A4q.3 B4e.4 A4e.3 G4e.2 F#4e.1 G4hd.2
+LH: G2hd B2hd C3hd B2hd A2hd G2hd D3hd G2hd
 `,
   `
 id: fur-elise
 title: К Элизе (начало)
 composer: Л. ван Бетховен
 group: intermediate
-tempo: 72
+tempo: 80
 time: 3/8
-key: 0
+key: 0 minor
+pickup: e
 ---
-RH: E5e.3 D#5e.2 E5e.3 D#5e.2 E5e.3 B4e.1 D5e.2 C5e.1 A4qd.1 C4e.1 E4e.2 A4e.3 B4qd.4 E4e.1 G#4e.2 B4e.3 C5qd.5
-LH: A2qd.5 A2e.5 E3e.2 A3e.1 E2qd.5 E2e.5 E3e.2 G#3e.1 A2qd.5
+RH: E5s.5 D#5s.4 E5s.5 D#5s.4 E5s.5 B4s.2 D5s.4 C5s.3 A4e.1 rs C4s.1 E4s.2 A4s.3 B4e.4 rs E4s.1 G#4s.3 B4s.4 C5e.5 rs E4s.1 E5s.5 D#5s.4 E5s.5 D#5s.4 E5s.5 B4s.2 D5s.4 C5s.3 A4e.1 rs C4s.1 E4s.2 A4s.3 B4e.4 rs E4s.1 C5s.4 B4s.3 A4e.2 re
+LH: re rqd A2s.5 E3s.2 A3s.1 rs re E2s.5 E3s.2 G#3s.1 rs re A2s.5 E3s.2 A3s.1 rs re rqd A2s.5 E3s.2 A3s.1 rs re E2s.5 E3s.2 G#3s.1 rs re A2s.5 E3s.2 A3s.1 rs
 `,
   `
 id: prelude-c
-title: Прелюдия до мажор (фрагмент)
+title: Прелюдия до мажор (такты 1–4)
 composer: И. С. Бах
 group: advanced
-tempo: 76
+tempo: 66
 time: 4/4
 key: 0
+pedal: bar
 ---
-RH: E4e.2 G4e.3 C5e.5 E5e.4 G4e.3 C5e.5 E5e.4 G4e.3 E4e.2 G4e.3 C5e.5 E5e.4 G4e.3 C5e.5 E5e.4 G4e.3 D4e.2 G4e.3 D5e.5 F5e.4 G4e.3 D5e.5 F5e.4 G4e.3
-LH: C3e.5 E3e.3 C3e.5 E3e.3 C3e.5 E3e.3 C3e.5 E3e.3 C3e.5 E3e.3 C3e.5 E3e.3 C3e.5 E3e.3 C3e.5 E3e.3 B2e.5 D3e.2 B2e.5 D3e.2 B2e.5 D3e.2 B2e.5 D3e.2
+RH: re G4s C5s E5s G4s C5s E5s re G4s C5s E5s G4s C5s E5s re A4s D5s F5s A4s D5s F5s re A4s D5s F5s A4s D5s F5s re G4s D5s F5s G4s D5s F5s re G4s D5s F5s G4s D5s F5s re G4s C5s E5s G4s C5s E5s re G4s C5s E5s G4s C5s E5s
+LH: C4s E4s rqd C4s E4s rqd C4s D4s rqd C4s D4s rqd B3s D4s rqd B3s D4s rqd C4s E4s rqd C4s E4s rqd
 `
 ]
 
@@ -123,7 +118,8 @@ export function createGeneratedPiece(
   composer: string,
   group: PieceGroup,
   notes: ScoreNote[],
-  tempo = 80
+  tempo = 80,
+  keySignature = 0
 ): Piece {
   return {
     id,
@@ -133,17 +129,17 @@ export function createGeneratedPiece(
     group,
     favorite: false,
     timeSignature: [4, 4],
-    keySignature: 0,
+    keySignature,
     tempo,
     notes,
-    createdAt: new Date().toISOString(),
+    createdAt: '2026-01-01T00:00:00.000Z',
     practiceSeconds: 0
   }
 }
 
 const MAJOR = [0, 2, 4, 5, 7, 9, 11, 12]
 
-export function generateScale(tonicMidi: number, octaves: number, title: string): Piece {
+export function generateScale(tonicMidi: number, octaves: number, title: string, keySignature = 0): Piece {
   const notes: ScoreNote[] = []
   let time = 0
   const seq: number[] = []
@@ -176,7 +172,7 @@ export function generateScale(tonicMidi: number, octaves: number, title: string)
   write(down, rhDown, 'treble', time)
   write(down.map((m) => m - 12), lhDown, 'bass', time)
 
-  return createGeneratedPiece(`scale-${tonicMidi}-${octaves}`, title, 'Разминка', 'warmup', notes, 70)
+  return createGeneratedPiece(`scale-${tonicMidi}-${octaves}`, title, 'Разминка', 'warmup', notes, 70, keySignature)
 }
 
 export function generateFiveFinger(tonicMidi = 60): Piece {
@@ -209,7 +205,8 @@ export function generateArpeggio(tonicMidi = 60): Piece {
   const ups = [0, 4, 7, 12, 16, 19, 24]
   const downs = [19, 16, 12, 7, 4, 0]
   const seq = [...ups, ...downs]
-  const rh: Finger[] = [1, 2, 3, 5, 1, 2, 3, 2, 1, 5, 3, 2, 1]
+  // Two octaves up and down: thumb under after 3 (right hand), 4 over the thumb (left hand).
+  const rh: Finger[] = [1, 2, 3, 1, 2, 3, 5, 3, 2, 1, 3, 2, 1]
   const notes: ScoreNote[] = seq.map((step, i) => ({
     id: uid('n'),
     midi: tonicMidi + step,
@@ -226,7 +223,7 @@ export function generateArpeggio(tonicMidi = 60): Piece {
       duration: 0.5,
       time: i * 0.5,
       clef: 'bass',
-      finger: ([5, 3, 2, 1, 5, 3, 2, 3, 5, 1, 2, 3, 5][i] ?? 5) as Finger
+      finger: ([5, 4, 2, 1, 4, 2, 1, 2, 4, 1, 2, 4, 5][i] ?? 5) as Finger
     })
   })
   return createGeneratedPiece('arpeggio-c', 'Арпеджио до мажор', 'Разминка', 'warmup', notes, 68)
@@ -274,7 +271,7 @@ export function generateCadence(): Piece {
 export const WARMUPS = [
   generateScale(60, 1, 'Гамма до мажор, 1 октава'),
   generateScale(60, 2, 'Гамма до мажор, 2 октавы'),
-  generateScale(67, 1, 'Гамма соль мажор, 1 октава'),
+  generateScale(67, 1, 'Гамма соль мажор, 1 октава', 1),
   generateFiveFinger(),
   generateArpeggio(),
   generateCadence()

@@ -5,6 +5,9 @@
   ; An update first runs the old uninstaller, which removes these two, so they are made on every install.
   CreateShortCut "$DESKTOP\NotaMentor.lnk" "$INSTDIR\NotaMentor.exe" "" "$INSTDIR\NotaMentor.exe" 0
   CreateShortCut "$SMPROGRAMS\NotaMentor.lnk" "$INSTDIR\NotaMentor.exe" "" "$INSTDIR\NotaMentor.exe" 0
+  ; The running window uses this AppUserModelID too, so a pinned icon and the window are one taskbar button.
+  WinShell::SetLnkAUMI "$DESKTOP\NotaMentor.lnk" "${APP_ID}"
+  WinShell::SetLnkAUMI "$SMPROGRAMS\NotaMentor.lnk" "${APP_ID}"
 !macroend
 
 !macro customUnInstall

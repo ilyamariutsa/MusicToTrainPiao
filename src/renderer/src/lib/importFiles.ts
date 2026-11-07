@@ -26,11 +26,13 @@ export async function importPickedFile(file: { name: string; ext: string; base64
   if (ext === 'nota') {
     const text = new TextDecoder('utf-8').decode(buffer)
     const piece = parseNotaDsl(text, file.name.replace(/\.nota$/i, ''))
-    assignFingering(piece.notes, { overwrite: piece.notes.every((note) => !note.finger) })
+    // Fingers written in the file stay; the rest are suggested.
+    assignFingering(piece.notes, { overwrite: false })
     // The id in the file is not unique: importing it twice or reusing a built-in id would clash.
     piece.id = uid('imp')
     piece.source = 'imported'
-    piece.group = estimateDifficulty(piece)
+    // A group set in the file is kept; otherwise the difficulty is estimated.
+    if (piece.group === 'custom') piece.group = estimateDifficulty(piece)
     return piece
   }
   throw new Error(`Формат .${ext} пока не поддерживается. Импортируйте MusicXML, MIDI или .nota`)

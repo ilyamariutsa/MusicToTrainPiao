@@ -98,6 +98,21 @@ export function playNotes(midis: number[], durationSec = 0.45, velocity = 0.7, t
   else ensureFallback().triggerAttackRelease(notes, durationSec, at, gain)
 }
 
+let clicker: Tone.MembraneSynth | null = null
+
+/** One shared metronome click (straight to the speakers, no reverb); higher and louder on the downbeat. */
+export function playClick(accent: boolean, time?: number): void {
+  if (!clicker) {
+    clicker = new Tone.MembraneSynth({
+      pitchDecay: 0.008,
+      octaves: 2,
+      envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.04 }
+    }).toDestination()
+    clicker.volume.value = -10
+  }
+  clicker.triggerAttackRelease(accent ? 'C5' : 'G4', 0.04, time ?? Tone.now(), accent ? 1 : 0.6)
+}
+
 export function releaseAll(): void {
   piano?.releaseAll()
   fallback?.releaseAll()

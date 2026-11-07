@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { initAudio, playNote } from '../lib/audio'
 import { PianoKeyboard } from '../components/PianoKeyboard'
 import { useLibrary } from '../store'
 import { KEYBOARD_PRESETS } from '../types'
 
-const EXAMPLES: Array<{ beats: number; name: string; say: string; count: string }> = [
+type Example = { beats: number; name: string; say: string; count: string }
+
+const EXAMPLES: Example[] = [
   { beats: 4, name: 'Целая', say: 'Звучит на все четыре счёта такта', count: '1 — 2 — 3 — 4' },
   { beats: 2, name: 'Половинная', say: 'Два счёта, вдвое короче целой', count: '1 — 2' },
   { beats: 1, name: 'Четверть', say: 'Один счёт. Самая частая длительность в простых пьесах', count: '1' },
@@ -13,24 +15,41 @@ const EXAMPLES: Array<{ beats: number; name: string; say: string; count: string 
   { beats: 1.5, name: 'Четверть с точкой', say: 'Четверть плюс ещё половина её самой: полтора счёта', count: '1 — и' }
 ]
 
+/** "1 доля", "2 доли", "0,5 доли". */
+function beatsLabel(beats: number): string {
+  return `${String(beats).replace('.', ',')} ${beats === 1 ? 'доля' : 'доли'}`
+}
+
 export function DurationsView() {
   const { settings } = useLibrary()
   const range = KEYBOARD_PRESETS[settings.keyCount]
   const [bpm, setBpm] = useState(80)
   const [active, setActive] = useState<number | null>(null)
   const [hold, setHold] = useState<Partial<Record<number, number>>>({})
-  const [label, setLabel] = useState<Partial<Record<number, string>>>({})
+  // The duration last chosen on a card; keys on the keyboard replay it at another pitch.
+  const [chosen, setChosen] = useState<Example>(EXAMPLES[2])
   const [heard, setHeard] = useState<string>('Выберите длительность — нота прозвучит ровно столько')
+  const clearTimer = useRef<number | null>(null)
 
-  async function hear(beats: number, name: string, midi = 60) {
+  useEffect(
+    () => () => {
+      if (clearTimer.current != null) window.clearTimeout(clearTimer.current)
+    },
+    []
+  )
+
+  async function hear(example: Example, midi = 60) {
     await initAudio()
-    const ms = (beats * 60 * 1000) / bpm
+    const ms = (example.beats * 60 * 1000) / bpm
+    setChosen(example)
     setActive(midi)
     setHold({ [midi]: ms })
-    setLabel({ [midi]: name })
-    setHeard(`${name} при ${bpm} BPM звучит ${(ms / 1000).toFixed(1)} сек. Слушайте до конца полоски на клавише.`)
+    setHeard(`${example.name} при ${bpm} уд/мин звучит ${(ms / 1000).toFixed(1)} сек. Слушайте до конца полоски на клавише.`)
     playNote(midi, ms / 1000, 0.85)
-    window.setTimeout(() => {
+    // Only the latest note clears the bar: an earlier, shorter one must not cut it short.
+    if (clearTimer.current != null) window.clearTimeout(clearTimer.current)
+    clearTimer.current = window.setTimeout(() => {
+      clearTimer.current = null
       setActive(null)
       setHold({})
     }, ms + 40)
@@ -48,20 +67,20 @@ export function DurationsView() {
           </p>
         </div>
         <label className="tempo">
-          Темп {bpm} BPM
+          Темп {bpm} уд/мин
           <input type="range" min={50} max={140} value={bpm} onChange={(e) => setBpm(Number(e.target.value))} />
         </label>
       </header>
 
       <div className="piece-grid">
         {EXAMPLES.map((item) => (
-          <article key={item.name} className="piece-card">
-            <span className="tag">{item.beats} доли</span>
+          <article key={item.name} className={item === chosen ? 'piece-card chosen' : 'piece-card'}>
+            <span className="tag">{beatsLabel(item.beats)}</span>
             <h3>{item.name}</h3>
             <p>{item.say}</p>
             <p className="meta">Счёт: {item.count}</p>
             <div className="piece-actions">
-              <button type="button" className="btn primary" onClick={() => void hear(item.beats, item.name)}>
+              <button type="button" className="btn primary" onClick={() => void hear(item)}>
                 Слушать
               </button>
             </div>
@@ -77,14 +96,11 @@ export function DurationsView() {
         expectedMidis={active != null ? [active] : [60]}
         holdMs={hold}
         showNames={settings.showNoteNames}
-        onNote={(midi) => {
-          const current = EXAMPLES.find((e) => label[60] === e.name) ?? EXAMPLES[2]
-          void hear(current.beats, current.name, midi)
-        }}
+        onNote={(midi) => void hear(chosen, midi)}
       />
       <p className="hint">
-        Нажмите любую клавишу, чтобы сравнить ту же длительность в другом месте клавиатуры. До первой подсвечена как
-        ориентир.
+        Нажмите любую клавишу — прозвучит выбранная длительность ({chosen.name.toLowerCase()}) в другом месте
+        клавиатуры. До первой подсвечена как ориентир.
       </p>
     </div>
   )

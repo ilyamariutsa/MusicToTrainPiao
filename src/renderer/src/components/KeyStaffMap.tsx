@@ -139,6 +139,9 @@ export function KeyStaffMap({
     const host = hostRef.current
     if (!host) return
     // contentRect is fractional and excludes the border — the same box the keys are laid out in.
+    // Measure once right away too: the observer only reports on the next rendered frame.
+    const style = getComputedStyle(host)
+    setWidth(host.getBoundingClientRect().width - parseFloat(style.borderLeftWidth) - parseFloat(style.borderRightWidth))
     const ro = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
     ro.observe(host)
     return () => ro.disconnect()

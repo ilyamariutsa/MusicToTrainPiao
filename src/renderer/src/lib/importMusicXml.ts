@@ -47,6 +47,7 @@ export async function importMusicXml(buffer: ArrayBuffer, fileName: string, ext:
   let tempo = 0
   let openingTime: [number, number] = [4, 4]
   let openingKey = 0
+  let openingMode = 'major' as 'major' | 'minor'
   let musicalNumber = 1
   // Notation programs write irregular measures on purpose (cadenzas, free intros): keep them whole.
   // Only OCR output, which sometimes glues bars together, is cut back to the time signature.
@@ -82,6 +83,7 @@ export async function importMusicXml(buffer: ArrayBuffer, fileName: string, ext:
           if (bars.length === 0 && partIndex === 0 && measureIndex === 0) {
             openingTime = timeSignature
             openingKey = keySignature
+            if (next.mode) openingMode = next.mode
           }
         } else if (tag === 'direction' || tag === 'sound') {
           const found = tag === 'direction' ? readTempo(el) : Number(attr(el, 'tempo')) || 0
@@ -112,6 +114,8 @@ export async function importMusicXml(buffer: ArrayBuffer, fileName: string, ext:
               const finger = readFinger(el)
               // <tie> is the sounding tie (<tied> only draws the arc): a "stop" continues the earlier note.
               const tied = children(el).some((item) => tagName(item) === 'tie' && attr(item, 'type') === 'stop')
+              // Keep the score's spelling (F♯ stays F♯ in a flat key, E♯ stays E♯).
+              const spelled = STEP[step] != null && Number.isInteger(alter) && Math.abs(alter) <= 2
               notes.push({
                 id: uid('n'),
                 part: partIndex,
@@ -122,6 +126,7 @@ export async function importMusicXml(buffer: ArrayBuffer, fileName: string, ext:
                 staff,
                 voice: numberOf(child(el, 'voice'), staff === 2 ? 5 : 1),
                 finger,
+                ...(spelled ? { step: step as ScoreNote['step'], alter } : {}),
                 ...(tied ? { tied: true } : {})
               })
             }
@@ -133,16 +138,19 @@ export async function importMusicXml(buffer: ArrayBuffer, fileName: string, ext:
       }
 
       const declared = roundBeat((timeSignature[0] * 4) / timeSignature[1])
-      const lengths = trustMeasures ? [high > 0.05 ? roundBeat(high) : declared] : barLengths(declared, high)
+      // An upbeat (marked implicit, or a short first bar) keeps its real length in any program.
+      const upbeat = high > 0.05 && high < declared - 0.05 && (attr(measure, 'implicit') === 'yes' || measureIndex === 0)
+      const lengths = upbeat || trustMeasures ? [high > 0.05 ? roundBeat(high) : declared] : barLengths(declared, high)
       for (const length of lengths) {
         if (partIndex === 0) {
           bars.push({
             start: roundBeat(partTime),
             end: roundBeat(partTime + length),
             signature: timeSignature,
-            number: musicalNumber
+            number: upbeat ? 0 : musicalNumber,
+            ...(keySignature !== openingKey ? { key: keySignature } : {})
           })
-          musicalNumber += 1
+          if (!upbeat) musicalNumber += 1
         }
         partTime = roundBeat(partTime + length)
       }
@@ -174,6 +182,7 @@ export async function importMusicXml(buffer: ArrayBuffer, fileName: string, ext:
     favorite: false,
     timeSignature: openingTime,
     keySignature: openingKey,
+    ...(openingMode === 'minor' ? { mode: 'minor' as const } : {}),
     tempo: Math.round(tempo),
     notes: fitted,
     bars,
@@ -300,22 +309,28 @@ function readAttributes(
   timeSignature: [number, number],
   keySignature: number,
   clefByStaff: Map<number, Clef>
-): { divisions: number; timeSignature: [number, number]; keySignature: number; staves: number } {
+): { divisions: number; timeSignature: [number, number]; keySignature: number; staves: number; mode?: 'major' | 'minor' } {
   const divisionNode = child(node, 'divisions')
   if (divisionNode) divisions = numberOf(divisionNode, divisions) || divisions
   const time = child(node, 'time')
   if (time) {
-    timeSignature = [numberOf(child(time, 'beats'), 4) || 4, numberOf(child(time, 'beat-type'), 4) || 4]
+    // Additive meters ("3+2") count all their beats.
+    const beats = textOf(child(time, 'beats'))
+      .split('+')
+      .reduce((sum, part) => sum + (Number(part) || 0), 0)
+    timeSignature = [beats || 4, numberOf(child(time, 'beat-type'), 4) || 4]
   }
   const key = child(node, 'key')
   if (key && child(key, 'fifths')) keySignature = numberOf(child(key, 'fifths'), keySignature)
+  const modeText = textOf(child(key, 'mode')).toLowerCase()
+  const mode = modeText === 'minor' ? 'minor' : modeText === 'major' ? 'major' : undefined
   const staves = numberOf(child(node, 'staves'), 1)
   for (const clef of children(node).filter((item) => tagName(item) === 'clef')) {
     const sign = textOf(child(clef, 'sign')).toUpperCase()
     const staff = Number(attr(clef, 'number')) || 1
     clefByStaff.set(staff, sign === 'F' ? 'bass' : 'treble')
   }
-  return { divisions, timeSignature, keySignature, staves }
+  return { divisions, timeSignature, keySignature, staves, mode }
 }
 
 function readTempo(direction: XNode): number {

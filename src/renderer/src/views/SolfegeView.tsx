@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { PianoKeyboard } from '../components/PianoKeyboard'
 import { StaffNote } from '../components/StaffNote'
 import { initAudio, playNote, playNotes } from '../lib/audio'
@@ -8,9 +8,17 @@ import { KEYBOARD_PRESETS } from '../types'
 
 type Tab = 'intervals' | 'degrees' | 'triads' | 'naming'
 
+const TABS: Array<[Tab, string]> = [
+  ['intervals', 'Интервалы'],
+  ['degrees', 'Ступени'],
+  ['triads', 'Мажор / минор'],
+  ['naming', 'Имя ноты']
+]
+
 const INTERVALS = [
   { semitones: 0, name: 'Прима', hint: 'Та же нота, без шага' },
   { semitones: 2, name: 'Большая секунда', hint: 'Соседняя ступень: до → ре' },
+  { semitones: 3, name: 'Малая терция', hint: 'до → ми♭, грустный шаг' },
   { semitones: 4, name: 'Большая терция', hint: 'до → ми, светлый шаг' },
   { semitones: 5, name: 'Кварта', hint: 'до → фа' },
   { semitones: 7, name: 'Квинта', hint: 'до → соль' },
@@ -20,24 +28,49 @@ const INTERVALS = [
 
 const DEGREES = ['I тоника', 'II', 'III', 'IV субдоминанта', 'V доминанта', 'VI', 'VII вводный']
 const MAJOR = [0, 2, 4, 5, 7, 9, 11]
-const ROOT = 60
+const TONIC = 60
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+/** A start note between G3 and G4, so intervals and chords are judged by ear, not by the pitch of one note. */
+function randomRoot(): number {
+  return 55 + Math.floor(Math.random() * 13)
+}
+
+type Score = { right: number; total: number }
+
 export function SolfegeView() {
   const { settings } = useLibrary()
   const range = KEYBOARD_PRESETS[settings.keyCount]
   const [tab, setTab] = useState<Tab>('intervals')
-  const [message, setMessage] = useState('Нажмите «Слушать» — без этого браузер не даст звук')
+  const [message, setMessage] = useState('Нажмите «Новый вопрос» — звук включится с первого нажатия')
   const [flash, setFlash] = useState<number[]>([])
   const [nameMidi, setNameMidi] = useState(64)
-  const [busy, setBusy] = useState(false)
+  // While a question is open the keyboard shows nothing: the answer is by ear.
+  const [open, setOpen] = useState(false)
+  const [score, setScore] = useState<Record<Tab, Score>>({
+    intervals: { right: 0, total: 0 },
+    degrees: { right: 0, total: 0 },
+    triads: { right: 0, total: 0 },
+    naming: { right: 0, total: 0 }
+  })
+  const rootRef = useRef(TONIC)
   const intervalRef = useRef(7)
   const degreeRef = useRef(4)
   const triadMajorRef = useRef(true)
   const nameRef = useRef(64)
+  /** Each playback gets a number; a newer one silently ends the older loop. */
+  const playback = useRef(0)
+  const answered = useRef(true)
+
+  useEffect(
+    () => () => {
+      playback.current += 1
+    },
+    []
+  )
 
   async function ready(): Promise<boolean> {
     try {
@@ -49,72 +82,92 @@ export function SolfegeView() {
     }
   }
 
-  async function hearInterval(semi = intervalRef.current) {
-    if (!(await ready()) || busy) return
-    setBusy(true)
-    setFlash([ROOT])
-    playNote(ROOT, 0.55)
+  async function hearInterval() {
+    if (!(await ready())) return
+    const run = ++playback.current
+    const root = rootRef.current
+    setFlash([root])
+    playNote(root, 0.55)
     await sleep(520)
-    setFlash([ROOT, ROOT + semi])
-    playNote(ROOT + semi, 0.75)
-    setBusy(false)
+    if (run !== playback.current) return
+    setFlash([root, root + intervalRef.current])
+    playNote(root + intervalRef.current, 0.75)
   }
 
-  async function hearDegree(idx = degreeRef.current) {
-    if (!(await ready()) || busy) return
-    setBusy(true)
-    for (let i = 0; i <= idx; i += 1) {
-      playNote(ROOT + MAJOR[i], 0.22)
-      setFlash([ROOT + MAJOR[i]])
-      await sleep(170)
-    }
-    await sleep(120)
-    playNote(ROOT + MAJOR[idx], 0.8)
-    setFlash([ROOT + MAJOR[idx]])
-    setBusy(false)
+  /** The key is set by its tonic chord, then the degree sounds on its own. */
+  async function hearDegree() {
+    if (!(await ready())) return
+    const run = ++playback.current
+    setFlash([TONIC, TONIC + 4, TONIC + 7])
+    playNotes([TONIC - 12, TONIC, TONIC + 4, TONIC + 7], 0.9)
+    await sleep(1000)
+    if (run !== playback.current) return
+    const note = TONIC + MAJOR[degreeRef.current]
+    setFlash([note])
+    playNote(note, 0.9)
   }
 
-  async function hearTriad(major = triadMajorRef.current) {
-    if (!(await ready()) || busy) return
-    const chord = major ? [60, 64, 67] : [60, 63, 67]
+  async function hearTriad() {
+    if (!(await ready())) return
+    playback.current += 1
+    const root = rootRef.current
+    const chord = triadMajorRef.current ? [root, root + 4, root + 7] : [root, root + 3, root + 7]
     setFlash(chord)
     playNotes(chord, 1.2)
   }
 
-  async function hearName(midi = nameRef.current) {
+  async function hearName() {
     if (!(await ready())) return
-    setFlash([midi])
-    playNote(midi, 0.7)
+    playback.current += 1
+    playNote(nameRef.current, 0.7)
+  }
+
+  function ask(text: string) {
+    answered.current = false
+    setOpen(true)
+    setMessage(text)
+  }
+
+  /** Records the first answer to a question and reveals the keys. */
+  function answer(right: boolean, text: string) {
+    if (!answered.current) {
+      answered.current = true
+      setScore((s) => ({ ...s, [tab]: { right: s[tab].right + (right ? 1 : 0), total: s[tab].total + 1 } }))
+    }
+    setOpen(false)
+    setMessage(text)
   }
 
   async function newInterval() {
     const next = INTERVALS[Math.floor(Math.random() * INTERVALS.length)]
+    rootRef.current = randomRoot()
     intervalRef.current = next.semitones
-    setMessage('Какой это интервал? Сначала послушайте, потом выберите название.')
-    await hearInterval(next.semitones)
+    ask('Какой это интервал? Послушайте и выберите название.')
+    await hearInterval()
   }
 
   async function newDegree() {
-    const idx = Math.floor(Math.random() * 7)
-    degreeRef.current = idx
-    setMessage('Какая ступень гаммы до мажор?')
-    await hearDegree(idx)
+    degreeRef.current = Math.floor(Math.random() * 7)
+    ask('Сначала звучит аккорд до мажора, потом одна нота. Какая это ступень?')
+    await hearDegree()
   }
 
   async function newTriad() {
-    const major = Math.random() > 0.45
-    triadMajorRef.current = major
-    setMessage('Мажор или минор?')
-    await hearTriad(major)
+    rootRef.current = randomRoot()
+    triadMajorRef.current = Math.random() > 0.45
+    ask('Мажор или минор?')
+    await hearTriad()
   }
 
   async function newName() {
     const midi = 55 + Math.floor(Math.random() * 20)
     nameRef.current = midi
     setNameMidi(midi)
-    setMessage('Назовите ноту и нажмите её на пианино')
-    await hearName(midi)
+    ask('Какая это нота? Нажмите её на клавиатуре')
+    await hearName()
   }
+
+  const current = score[tab]
 
   return (
     <div className="page">
@@ -122,26 +175,29 @@ export function SolfegeView() {
         <div>
           <p className="eyebrow">Сольфеджио</p>
           <h1>Слух, ступени и имена нот</h1>
-          <p className="lead">Нажмите «Слушать» или «Новый вопрос» — звук включается с первого нажатия.</p>
+          <p className="lead">Нажмите «Новый вопрос», послушайте и ответьте. Клавиши подсвечиваются только после ответа.</p>
+        </div>
+        <div className="hero-stats">
+          <div className="stat">
+            <strong>{current.total ? `${current.right} из ${current.total}` : '—'}</strong>
+            <span>Верно в этом разделе</span>
+          </div>
         </div>
       </header>
 
       <div className="chips">
-        {(
-          [
-            ['intervals', 'Интервалы'],
-            ['degrees', 'Ступени'],
-            ['triads', 'Мажор / минор'],
-            ['naming', 'Имя ноты']
-          ] as const
-        ).map(([id, label]) => (
+        {TABS.map(([id, label]) => (
           <button
             key={id}
             type="button"
             className={tab === id ? 'chip active' : 'chip'}
             onClick={() => {
+              playback.current += 1
+              answered.current = true
+              setOpen(false)
+              setFlash([])
               setTab(id)
-              setMessage('Нажмите «Слушать» или «Новый вопрос»')
+              setMessage('Нажмите «Новый вопрос»')
             }}
           >
             {label}
@@ -154,11 +210,11 @@ export function SolfegeView() {
       {tab === 'intervals' ? (
         <div className="panel">
           <div className="btn-row" style={{ marginLeft: 0 }}>
-            <button type="button" className="btn primary" onClick={() => void hearInterval()}>
-              Слушать
-            </button>
-            <button type="button" className="btn" onClick={() => void newInterval()}>
+            <button type="button" className="btn primary" onClick={() => void newInterval()}>
               Новый вопрос
+            </button>
+            <button type="button" className="btn" onClick={() => void hearInterval()}>
+              Слушать ещё раз
             </button>
           </div>
           <div className="chips" style={{ marginTop: 12 }}>
@@ -168,10 +224,11 @@ export function SolfegeView() {
                 type="button"
                 className="chip"
                 onClick={() =>
-                  setMessage(
+                  answer(
+                    item.semitones === intervalRef.current,
                     item.semitones === intervalRef.current
                       ? `Верно: ${item.name}. ${item.hint}`
-                      : `Это не ${item.name}. Нажмите «Слушать» ещё раз.`
+                      : `Нет, это ${INTERVALS.find((i) => i.semitones === intervalRef.current)?.name.toLowerCase()}.`
                   )
                 }
               >
@@ -184,13 +241,13 @@ export function SolfegeView() {
 
       {tab === 'degrees' ? (
         <div className="panel">
-          <p>Гамма до мажор. Считайте: до ре ми фа соль ля си.</p>
+          <p>Тональность до мажор: до ре ми фа соль ля си.</p>
           <div className="btn-row" style={{ marginLeft: 0 }}>
-            <button type="button" className="btn primary" onClick={() => void hearDegree()}>
-              Слушать
-            </button>
-            <button type="button" className="btn" onClick={() => void newDegree()}>
+            <button type="button" className="btn primary" onClick={() => void newDegree()}>
               Новый вопрос
+            </button>
+            <button type="button" className="btn" onClick={() => void hearDegree()}>
+              Слушать ещё раз
             </button>
           </div>
           <div className="chips" style={{ marginTop: 12 }}>
@@ -200,7 +257,10 @@ export function SolfegeView() {
                 type="button"
                 className="chip"
                 onClick={() =>
-                  setMessage(idx === degreeRef.current ? `Верно: ${label}` : `Не ${label}. Послушайте снова.`)
+                  answer(
+                    idx === degreeRef.current,
+                    idx === degreeRef.current ? `Верно: ${label}` : `Нет, это ${DEGREES[degreeRef.current]}.`
+                  )
                 }
               >
                 {label}
@@ -214,23 +274,23 @@ export function SolfegeView() {
         <div className="panel">
           <p>Три звука вместе. Мажор светлее, минор мягче.</p>
           <div className="btn-row" style={{ marginLeft: 0 }}>
-            <button type="button" className="btn primary" onClick={() => void hearTriad()}>
-              Слушать
-            </button>
-            <button type="button" className="btn" onClick={() => void newTriad()}>
+            <button type="button" className="btn primary" onClick={() => void newTriad()}>
               Новый вопрос
+            </button>
+            <button type="button" className="btn" onClick={() => void hearTriad()}>
+              Слушать ещё раз
             </button>
             <button
               type="button"
               className="chip"
-              onClick={() => setMessage(triadMajorRef.current ? 'Верно, это мажор' : 'Это минор')}
+              onClick={() => answer(triadMajorRef.current, triadMajorRef.current ? 'Верно, это мажор' : 'Нет, это минор')}
             >
               Мажор
             </button>
             <button
               type="button"
               className="chip"
-              onClick={() => setMessage(triadMajorRef.current ? 'Это мажор' : 'Верно, это минор')}
+              onClick={() => answer(!triadMajorRef.current, triadMajorRef.current ? 'Нет, это мажор' : 'Верно, это минор')}
             >
               Минор
             </button>
@@ -240,16 +300,16 @@ export function SolfegeView() {
 
       {tab === 'naming' ? (
         <div className="trainer-layout">
-          <StaffNote midi={nameMidi} clef={nameMidi >= 60 ? 'treble' : 'bass'} reveal={false} />
+          <StaffNote midi={nameMidi} clef={nameMidi >= 60 ? 'treble' : 'bass'} reveal={!open} />
           <div className="trainer-side">
-            <button type="button" className="btn primary" onClick={() => void hearName()}>
-              Слушать
-            </button>
-            <button type="button" className="btn" onClick={() => void newName()}>
+            <button type="button" className="btn primary" onClick={() => void newName()}>
               Новый вопрос
             </button>
-            <button type="button" className="btn" onClick={() => setMessage(`Это ${midiToRu(nameRef.current)}`)}>
-              Показать имя
+            <button type="button" className="btn" onClick={() => void hearName()}>
+              Слушать ещё раз
+            </button>
+            <button type="button" className="btn" onClick={() => answer(false, `Это ${midiToRu(nameRef.current)}`)}>
+              Показать ответ
             </button>
           </div>
         </div>
@@ -258,15 +318,19 @@ export function SolfegeView() {
       <PianoKeyboard
         fromMidi={range.fromMidi}
         toMidi={range.toMidi}
-        activeMidis={flash}
-        expectedMidis={tab === 'naming' ? [nameMidi] : flash}
+        activeMidis={open ? [] : flash}
+        expectedMidis={open ? [] : tab === 'naming' ? [nameMidi] : flash}
         showNames={settings.showNoteNames}
         onNote={(midi) => {
           void ready().then((ok) => {
             if (!ok) return
             playNote(midi, 0.45)
-            if (tab === 'naming') {
-              setMessage(midi === nameRef.current ? `Верно: ${midiToRu(nameRef.current)}` : `Искали ${midiToRu(nameRef.current)}`)
+            if (tab === 'naming' && open) {
+              answer(
+                midi === nameRef.current,
+                midi === nameRef.current ? `Верно: ${midiToRu(nameRef.current)}` : `Нет, это ${midiToRu(nameRef.current)}`
+              )
+              setFlash([nameRef.current])
             }
           })
         }}

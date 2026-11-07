@@ -2,23 +2,10 @@ import type { Finger, ScoreNote } from '../types'
 import { isWhiteKey, noteHand } from './theory'
 
 const TIME_EPS = 0.03
+const FINGERS: Finger[] = [1, 2, 3, 4, 5]
 
 function asFinger(value: number): Finger {
   return Math.min(5, Math.max(1, Math.round(value))) as Finger
-}
-
-/** How many white keys sit at or below this MIDI note, from C-1. */
-export function whiteIndex(midi: number): number {
-  const octave = Math.floor(midi / 12)
-  const pc = ((midi % 12) + 12) % 12
-  const below = [0, 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6]
-  return octave * 7 + below[pc]
-}
-
-function nearestWhiteBelow(midi: number): number {
-  let key = midi
-  while (key > 0 && !isWhiteKey(key)) key -= 1
-  return key
 }
 
 function groupByTime(notes: ScoreNote[]): ScoreNote[][] {
@@ -62,7 +49,7 @@ function chordFingers(midis: number[], isRight: boolean): Finger[] {
   let rising: Finger[] = []
 
   if (count <= 1) {
-    rising = [isRight ? 3 : 3]
+    rising = [3]
   } else if (count === 2) {
     const interval = sorted[1] - sorted[0]
     if (interval <= 3) rising = [1, 2]
@@ -75,8 +62,7 @@ function chordFingers(midis: number[], isRight: boolean): Finger[] {
   } else if (count === 4) {
     rising = [1, 2, 3, 5]
   } else {
-    rising = sorted.map((_, i) => asFinger(1 + (i * 4) / Math.max(1, count - 1)))
-    rising = uniquify(rising)
+    rising = uniquify(sorted.map((_, i) => asFinger(1 + (i * 4) / Math.max(1, count - 1))))
   }
 
   if (!isRight) rising = rising.map((finger) => asFinger(6 - finger))
@@ -87,142 +73,9 @@ function chordFingers(midis: number[], isRight: boolean): Finger[] {
   return midis.map((midi) => byMidi.get(midi) ?? 3)
 }
 
-function stretchFinger(midi: number, minMidi: number, maxMidi: number, isRight: boolean): Finger {
-  const minW = whiteIndex(nearestWhiteBelow(minMidi))
-  const maxW = whiteIndex(nearestWhiteBelow(maxMidi))
-  const here = whiteIndex(nearestWhiteBelow(midi))
-  const t = (here - minW) / Math.max(1, maxW - minW)
-  return asFinger(isRight ? 1 + t * 4 : 5 - t * 4)
-}
-
-function fingerInPosition(midi: number, homeWhite: number, isRight: boolean): Finger {
-  const white = whiteIndex(nearestWhiteBelow(midi))
-  const home = whiteIndex(homeWhite)
-  const delta = white - home
-  const finger = isRight ? 1 + delta : 5 - delta
-  return asFinger(finger)
-}
-
-function avoidAwkwardBlack(midi: number, finger: Finger): Finger {
-  if (isWhiteKey(midi)) return finger
-  if (finger === 1) return 2
-  if (finger === 5) return 4
-  return finger
-}
-
-function scorePosition(notes: ScoreNote[], home: number, isRight: boolean): number {
-  let score = 0
-  const pc = ((home % 12) + 12) % 12
-  if (pc === 0 || pc === 5) score += 8
-
-  for (const note of notes) {
-    const finger = fingerInPosition(note.midi, home, isRight)
-    const white = whiteIndex(nearestWhiteBelow(note.midi))
-    const homeW = whiteIndex(home)
-    const delta = white - homeW
-    if (delta < 0) score -= 40
-    if (delta > 5) score -= 12 * (delta - 5)
-    else score += 10
-    if (!isWhiteKey(note.midi) && (finger === 1 || finger === 5)) score -= 36
-    if (finger === 2 || finger === 3) score += 3
-  }
-  return score
-}
-
-function bestHome(notes: ScoreNote[], isRight: boolean): number {
-  const minMidi = Math.min(...notes.map((note) => note.midi))
-  const maxMidi = Math.max(...notes.map((note) => note.midi))
-  const span = whiteIndex(maxMidi) - whiteIndex(minMidi)
-  if (span <= 5) return nearestWhiteBelow(minMidi)
-
-  let best = nearestWhiteBelow(minMidi)
-  let bestScore = Number.NEGATIVE_INFINITY
-  for (let midi = minMidi - 8; midi <= minMidi + 2; midi += 1) {
-    if (!isWhiteKey(midi)) continue
-    const score = scorePosition(notes, midi, isRight)
-    if (score > bestScore) {
-      bestScore = score
-      best = midi
-    }
-  }
-  return best
-}
-
-/** Chromatic neighbor groups like E–D#–E get 3–2–3, then the rest of the phrase is positioned normally. */
-function assignNeighborRuns(line: ScoreNote[], _isRight: boolean, overwrite: boolean): void {
-  let i = 0
-  while (i < line.length) {
-    let end = i + 1
-    const pitches = new Set<number>([line[i].midi])
-    while (end < line.length) {
-      const nextPitches = new Set(pitches)
-      nextPitches.add(line[end].midi)
-      if (nextPitches.size > 2) break
-      const pair = [...nextPitches].sort((a, b) => a - b)
-      if (pair.length === 2 && pair[1] - pair[0] > 1) break
-      pitches.add(line[end].midi)
-      end += 1
-    }
-    const run = line.slice(i, end)
-    const unique = [...pitches].sort((a, b) => a - b)
-    const first = run[0].midi
-    let left = false
-    let returns = false
-    for (const note of run) {
-      if (note.midi !== first) left = true
-      else if (left) returns = true
-    }
-    if (run.length >= 3 && unique.length === 2 && returns) {
-      for (const note of run) {
-        if (!overwrite && note.finger) continue
-        note.finger = avoidAwkwardBlack(note.midi, (note.midi === unique[1] ? 3 : 2) as Finger)
-      }
-      i = end
-      continue
-    }
-    i += 1
-  }
-}
-
-function melodyChunks(groups: ScoreNote[][]): ScoreNote[][] {
-  const chunks: ScoreNote[][] = []
-  let current: ScoreNote[] = []
-
-  const span = (notes: ScoreNote[]): number => {
-    const midis = notes.map((note) => note.midi)
-    return whiteIndex(Math.max(...midis)) - whiteIndex(Math.min(...midis))
-  }
-
-  for (const group of groups) {
-    if (group.length > 1) {
-      if (current.length) chunks.push(current)
-      current = []
-      continue
-    }
-    const trial = [...current, group[0]]
-    if (current.length && span(trial) > 5) {
-      const added = group[0]
-      const prev = current[current.length - 1]
-      const leap = Math.abs(added.midi - prev.midi) >= 5
-      if (leap && span(trial) <= 7) {
-        current = trial
-      } else {
-        chunks.push(current)
-        current = [group[0]]
-      }
-    } else {
-      current = trial
-    }
-  }
-  if (current.length) chunks.push(current)
-  return chunks
-}
-
 function sanitizeChordGroup(group: ScoreNote[], isRight: boolean): void {
   if (group.length < 2) return
-  const uniqueMidis = new Set(group.map((note) => note.midi))
-  if (uniqueMidis.size < 2) return
-
+  if (new Set(group.map((note) => note.midi)).size < 2) return
   const used = new Map<Finger, number>()
   let illegal = group.some((note) => !note.finger)
   for (const note of group) {
@@ -232,7 +85,6 @@ function sanitizeChordGroup(group: ScoreNote[], isRight: boolean): void {
     used.set(note.finger, note.midi)
   }
   if (!illegal) return
-
   const fingers = chordFingers(
     group.map((note) => note.midi),
     isRight
@@ -243,90 +95,149 @@ function sanitizeChordGroup(group: ScoreNote[], isRight: boolean): void {
 }
 
 /**
- * Pedagogical fingering for beginners:
- * closed five-finger position per phrase, unique fingers in a chord,
- * left hand mirrored (5 on the low key, 1 on the high key),
- * no thumb/pinky on black keys.
+ * Comfortable and possible distances, in semitones, between two fingers of the right hand,
+ * measured from the lower-numbered finger's key to the higher one's (Parncutt et al., 1997):
+ * [practical min, comfortable min, relaxed min, relaxed max, comfortable max, practical max].
+ * Negative distances with the thumb are the thumb passing under (or a finger over the thumb).
+ */
+const SPAN: Record<string, [number, number, number, number, number, number]> = {
+  '12': [-5, -3, 1, 5, 8, 10],
+  '13': [-4, -2, 3, 7, 10, 12],
+  '14': [-3, -1, 5, 9, 12, 14],
+  '15': [-1, 1, 7, 10, 13, 15],
+  '23': [1, 1, 1, 2, 3, 5],
+  '24': [1, 1, 3, 4, 5, 7],
+  '25': [2, 2, 5, 6, 8, 10],
+  '34': [1, 1, 1, 2, 2, 4],
+  '35': [1, 1, 3, 4, 5, 7],
+  '45': [1, 1, 1, 2, 3, 5]
+}
+
+/** Effort of playing `to` with finger f2 right after `from` with finger f1. */
+function moveCost(from: number, f1: Finger, to: number, f2: Finger, isRight: boolean): number {
+  const step = to - from
+  if (f1 === f2) return step === 0 ? 0 : 8 + Math.abs(step)
+  const low = Math.min(f1, f2)
+  const high = Math.max(f1, f2)
+  // Distance from the lower-numbered finger to the higher one, mirrored for the left hand.
+  let span = f2 > f1 ? step : -step
+  if (!isRight) span = -span
+  const [minPrac, minComf, minRel, maxRel, maxComf, maxPrac] = SPAN[`${low}${high}`]
+  let cost = 0
+  if (span < minComf) cost += 2 * (minComf - span)
+  if (span > maxComf) cost += 2 * (span - maxComf)
+  if (span < 0) {
+    // The thumb passing under (or a finger over it): fine in scales with 3 and 4, but each
+    // crossing costs a little, and crossing with the index finger is awkward.
+    cost += 4 + (low === 1 && high === 2 ? 8 : 0)
+  } else if (span < minRel) {
+    cost += (minRel - span) * (low === 1 ? 2 : 1)
+  }
+  if (span > maxRel) cost += span - maxRel
+  if (span < minPrac || span > maxPrac) cost += 25
+  return cost
+}
+
+/** Effort of a single key under a finger: thumb and little finger are awkward on black keys. */
+function keyCost(midi: number, finger: Finger): number {
+  if (isWhiteKey(midi)) return 0
+  if (finger === 1) return 3
+  if (finger === 5) return 1.5
+  return 0
+}
+
+type Slot = { midi: number; options: Finger[]; notes: ScoreNote[]; chord?: Array<{ midi: number; finger: Finger }>; time: number }
+
+/**
+ * Fingering for one hand: chords keep their block fingering; every run of single notes
+ * between them is fingered as the cheapest path (Viterbi) — the thumb passes under in
+ * scales, the same finger never plays two different keys in a row, a long pause lets the
+ * hand move freely.
+ */
+function fingerLine(groups: ScoreNote[][], isRight: boolean, overwrite: boolean): void {
+  let run: Slot[] = []
+  let before: Slot | null = null
+  const flush = (): void => {
+    if (run.length) solveRun(run, before, isRight, overwrite)
+    run = []
+  }
+  for (const group of groups) {
+    if (group.length > 1 && new Set(group.map((note) => note.midi)).size > 1) {
+      flush()
+      const fingers = chordFingers(
+        group.map((note) => note.midi),
+        isRight
+      )
+      group.forEach((note, i) => {
+        if (overwrite || !note.finger) note.finger = fingers[i]
+      })
+      sanitizeChordGroup(group, isRight)
+      before = { midi: group[0].midi, options: [], notes: group, time: group[0].time, chord: group.map((note) => ({ midi: note.midi, finger: note.finger ?? 3 })) }
+      continue
+    }
+    const note = group[0]
+    const fixed = !overwrite && note.finger
+    run.push({ midi: note.midi, options: fixed ? [note.finger as Finger] : FINGERS, notes: group, time: note.time })
+  }
+  flush()
+}
+
+function solveRun(run: Slot[], chordBefore: Slot | null, isRight: boolean, overwrite: boolean): void {
+  const weight = (from: number, to: number): number => (to - from >= 2 ? 0.2 : 1)
+  const back: Array<Map<Finger, Finger>> = []
+  let costs = new Map<Finger, number>()
+  run.forEach((slot, i) => {
+    const next = new Map<Finger, number>()
+    const from = new Map<Finger, Finger>()
+    for (const f2 of slot.options) {
+      let best = Number.POSITIVE_INFINITY
+      let bestFrom: Finger = f2
+      if (i === 0) {
+        if (chordBefore?.chord) {
+          // The chord tone nearest to this note stands in for the chord.
+          const tone = chordBefore.chord.reduce((a, b) => (Math.abs(b.midi - slot.midi) < Math.abs(a.midi - slot.midi) ? b : a))
+          best = moveCost(tone.midi, tone.finger, slot.midi, f2, isRight) * weight(chordBefore.time, slot.time)
+        } else best = 0
+      } else {
+        const prev = run[i - 1]
+        for (const [f1, base] of costs) {
+          const total = base + moveCost(prev.midi, f1, slot.midi, f2, isRight) * weight(prev.time, slot.time)
+          if (total < best) {
+            best = total
+            bestFrom = f1
+          }
+        }
+      }
+      next.set(f2, best + keyCost(slot.midi, f2))
+      from.set(f2, bestFrom)
+    }
+    costs = next
+    back.push(from)
+  })
+  let pick = [...costs.entries()].reduce((a, b) => (b[1] < a[1] ? b : a))[0]
+  for (let i = run.length - 1; i >= 0; i -= 1) {
+    for (const note of run[i].notes) if (overwrite || !note.finger) note.finger = pick
+    pick = back[i].get(pick) ?? pick
+  }
+}
+
+/**
+ * Suggested fingering: block fingering for chords, an effort-minimising path for melodies
+ * (thumb under in scales, no repeated finger on different keys, thumb and fifth off the
+ * black keys where possible). Fingers already in the score are kept unless `overwrite`.
  */
 export function assignFingering(notes: ScoreNote[], opts?: { overwrite?: boolean }): ScoreNote[] {
   const overwrite = opts?.overwrite ?? false
-
-  const applyHand = (handNotes: ScoreNote[], isRight: boolean): void => {
-    const groups = groupByTime(handNotes)
-
-    for (const group of groups) {
-      if (group.length > 1) {
-        const fingers = chordFingers(
-          group.map((note) => note.midi),
-          isRight
-        )
-        group.forEach((note, index) => {
-          if (overwrite || !note.finger) note.finger = fingers[index]
-        })
-        sanitizeChordGroup(group, isRight)
-      }
-    }
-
-    for (const chunk of melodyChunks(groups)) {
-      const minMidi = Math.min(...chunk.map((note) => note.midi))
-      const maxMidi = Math.max(...chunk.map((note) => note.midi))
-      const span = whiteIndex(maxMidi) - whiteIndex(minMidi)
-      const home = bestHome(chunk, isRight)
-      for (const note of chunk) {
-        if (!overwrite && note.finger) continue
-        const finger =
-          span >= 6
-            ? stretchFinger(note.midi, minMidi, maxMidi, isRight)
-            : fingerInPosition(note.midi, home, isRight)
-        note.finger = avoidAwkwardBlack(note.midi, finger)
-      }
-    }
-
-    assignNeighborRuns(
-      groups.filter((group) => group.length === 1).map((group) => group[0]),
-      isRight,
-      overwrite
-    )
-
-    let lastFinger: Finger | null = null
-    let lastMidi: number | null = null
-    for (const group of groups) {
-      if (group.length !== 1) {
-        lastFinger = group[0]?.finger ?? lastFinger
-        lastMidi = group[0]?.midi ?? lastMidi
-        continue
-      }
-      const note = group[0]
-      if (!note.finger) {
-        if (lastMidi != null && lastFinger != null && note.midi === lastMidi) {
-          note.finger = lastFinger
-        } else {
-          note.finger = isRight ? 3 : 3
-        }
-      }
-      lastFinger = note.finger
-      lastMidi = note.midi
-    }
-  }
-
   // A tied continuation is held, not played: it has no finger of its own.
   const pressed = notes.filter((note) => !note.tied)
-  applyHand(
-    pressed.filter((note) => noteHand(note) === 'right'),
-    true
-  )
-  applyHand(
-    pressed.filter((note) => noteHand(note) === 'left'),
-    false
-  )
-
-  for (const group of groupByTime(pressed.filter((note) => noteHand(note) === 'right'))) {
-    sanitizeChordGroup(group, true)
+  for (const isRight of [true, false]) {
+    const hand = pressed.filter((note) => (noteHand(note) === 'right') === isRight)
+    if (hand.length === 0) continue
+    // Voices are fingered separately only when the hand really has several lines.
+    const voices = [...new Set(hand.map((note) => note.voice ?? 1))]
+    const lines = voices.length > 1 ? voices.map((v) => hand.filter((note) => (note.voice ?? 1) === v)) : [hand]
+    for (const line of lines) fingerLine(groupByTime(line), isRight, overwrite)
   }
-  for (const group of groupByTime(pressed.filter((note) => noteHand(note) === 'left'))) {
-    sanitizeChordGroup(group, false)
-  }
-
   return notes
 }
 

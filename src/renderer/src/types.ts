@@ -22,6 +22,9 @@ export interface ScoreNote {
   tied?: boolean
   /** Loudness 0–1 from the score's dynamics or the MIDI file. */
   velocity?: number
+  /** How the score spells it (letter and alteration), e.g. F + 1 = F♯ even in a flat key. */
+  step?: 'C' | 'D' | 'E' | 'F' | 'G' | 'A' | 'B'
+  alter?: number
 }
 
 export interface ScoreBar {
@@ -29,6 +32,8 @@ export interface ScoreBar {
   end: number
   signature: [number, number]
   number: number
+  /** Key signature from this bar on (circle of fifths), when the piece changes key. */
+  key?: number
 }
 
 export interface Piece {
@@ -41,6 +46,8 @@ export interface Piece {
   timeSignature: [number, number]
   /** Circle-of-fifths: -7..7 */
   keySignature: number
+  /** Minor pieces share the signature of their relative major (A minor = 0). */
+  mode?: 'major' | 'minor'
   tempo: number
   notes: ScoreNote[]
   /** One entry per measure, including meter changes. */

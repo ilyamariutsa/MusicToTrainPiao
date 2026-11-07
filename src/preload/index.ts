@@ -4,6 +4,8 @@ export type ImportedFile = {
   name: string
   ext: string
   base64: string
+  /** Set when the file could not be read; base64 is then empty. */
+  error?: string
 }
 
 const api = {

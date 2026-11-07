@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { blackKeys, whiteKeys } from '../lib/keyboardLayout'
 import { midiToRu, octaveRu } from '../lib/theory'
 import type { Finger, ScoreNote } from '../types'
@@ -17,6 +17,8 @@ type Props = {
   /** Keys shown with the staff guide; defaults to C2–B6. */
   guideRange?: [number, number]
   keySignature?: number
+  /** The "range · N keys" line above the keys. */
+  legend?: boolean
   onNote?: (midi: number) => void
 }
 
@@ -32,6 +34,7 @@ export function PianoKeyboard({
   guideNotes,
   guideRange = [GUIDE_FROM_MIDI, GUIDE_TO_MIDI],
   keySignature = 0,
+  legend = true,
   onNote
 }: Props) {
   const viewFrom = guideNotes ? guideRange[0] : fromMidi
@@ -42,10 +45,15 @@ export function PianoKeyboard({
   const total = viewTo - viewFrom + 1
   const whiteWidth = 100 / whites.length
   const blackWidth = whiteWidth * 0.58
+  // A new hold map (even for the same key and length) remounts the bars, so the
+  // shrinking animation starts over for a repeated note.
+  const holdRun = useRef({ map: holdMs, n: 0 })
+  if (holdRun.current.map !== holdMs) holdRun.current = { map: holdMs, n: holdRun.current.n + 1 }
+  const holdKey = holdRun.current.n
 
   return (
     <div className="piano-block">
-      {guideNotes ? null : (
+      {guideNotes || !legend ? null : (
         <div className="piano-legend">
           <span>
             {midiToRu(fromMidi)} → {midiToRu(toMidi)}
@@ -78,7 +86,7 @@ export function PianoKeyboard({
               onMouseDown={() => onNote?.(midi)}
               title={`${midiToRu(midi)} · ${octaveRu(midi)} октава`}
             >
-              {holdMs[midi] ? <span className="hold-bar" /> : null}
+              {holdMs[midi] ? <span key={holdKey} className="hold-bar" /> : null}
               {fingers[midi] ? <span className="piano-finger">{fingers[midi]}</span> : null}
               {isC && showNames ? <span className="piano-c">До</span> : null}
             </button>
@@ -102,7 +110,7 @@ export function PianoKeyboard({
               onMouseDown={() => onNote?.(midi)}
               title={midiToRu(midi, keySignature)}
             >
-              {holdMs[midi] ? <span className="hold-bar" /> : null}
+              {holdMs[midi] ? <span key={holdKey} className="hold-bar" /> : null}
               {fingers[midi] ? <span className="piano-finger">{fingers[midi]}</span> : null}
             </button>
           )

@@ -15,7 +15,8 @@ const COPY: Record<string, string> = {
 }
 
 export function WarmupView({ onOpen }: Props) {
-  const { savePiece, recordWarmup } = useLibrary()
+  // Warm-ups live in the library like the built-in pieces, so their progress is kept.
+  const { pieces, recordWarmup } = useLibrary()
 
   return (
     <div className="page">
@@ -30,17 +31,25 @@ export function WarmupView({ onOpen }: Props) {
         </div>
       </header>
       <div className="piece-grid">
-        {WARMUPS.map((piece) => (
+        {WARMUPS.map((warmup) => {
+          const piece = pieces.find((p) => p.id === warmup.id) ?? warmup
+          const minutes = Math.round((piece.practiceSeconds ?? 0) / 60)
+          return (
           <article key={piece.id} className="piece-card">
             <span className="tag">Разминка</span>
             <h3>{piece.title}</h3>
             <p>{COPY[piece.id] ?? piece.composer}</p>
+            {minutes || piece.bestAccuracy != null ? (
+              <p className="meta">
+                {minutes ? `${minutes} мин` : 'меньше минуты'}
+                {piece.bestAccuracy != null ? ` · лучшая точность ${piece.bestAccuracy}%` : ''}
+              </p>
+            ) : null}
             <div className="piece-actions">
               <button
                 type="button"
                 className="btn primary"
                 onClick={async () => {
-                  await savePiece(piece)
                   await recordWarmup()
                   onOpen(piece.id)
                 }}
@@ -49,7 +58,8 @@ export function WarmupView({ onOpen }: Props) {
               </button>
             </div>
           </article>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

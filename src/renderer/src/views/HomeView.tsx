@@ -1,5 +1,5 @@
 import { GROUP_LABELS } from '../types'
-import { useLibrary } from '../store'
+import { currentStreak, useLibrary } from '../store'
 import type { ViewId } from '../types'
 
 type Props = {
@@ -27,7 +27,7 @@ export function HomeView({ onOpen }: Props) {
           </p>
         </div>
         <div className="hero-stats">
-          <Stat label="Серия дней" value={`${stats.streakDays}`} />
+          <Stat label="Серия дней" value={`${currentStreak(stats)}`} />
           <Stat label="Минут за инструментом" value={`${minutes}`} />
           <Stat label="Тренажёр нот" value={stats.trainerTotal ? `${trainerPct}%` : '—'} />
         </div>

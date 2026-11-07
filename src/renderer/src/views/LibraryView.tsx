@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { GROUP_HINTS, GROUP_LABELS, type PieceGroup } from '../types'
 import { difficultyReason } from '../lib/difficulty'
 import { useLibrary } from '../store'
-import { KEY_NAMES, pieceDuration } from '../lib/theory'
+import { keyName, pieceDuration } from '../lib/theory'
 
 type Props = {
   onOpen: (pieceId: string) => void
@@ -19,7 +19,7 @@ const FILTERS: Array<PieceGroup | 'all' | 'favorites'> = [
 ]
 
 export function LibraryView({ onOpen }: Props) {
-  const { pieces, importFromDisk, updatePiece, deletePiece, error, clearError } = useLibrary()
+  const { pieces, importFromDisk, updatePiece, deletePiece } = useLibrary()
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>('all')
   const [query, setQuery] = useState('')
   const [importNote, setImportNote] = useState('')
@@ -43,8 +43,8 @@ export function LibraryView({ onOpen }: Props) {
           <p className="eyebrow">Библиотека</p>
           <h1>Ваши мелодии всегда под рукой</h1>
           <p className="lead">
-            Импортируйте MusicXML, сжатый MXL, MIDI или текстовый .nota — файлы сохраняются в приложении и не
-            пропадут после перезапуска.
+            Импортируйте MusicXML, сжатый MXL, MIDI или текстовый .nota — кнопкой или просто перетащите файлы в окно.
+            Ноты сохраняются в приложении и не пропадут после перезапуска.
           </p>
         </div>
         <button
@@ -65,14 +65,6 @@ export function LibraryView({ onOpen }: Props) {
         </button>
       </header>
 
-      {error ? (
-        <div className="banner" role="alert">
-          <span>{error}</span>
-          <button type="button" onClick={clearError}>
-            Закрыть
-          </button>
-        </div>
-      ) : null}
       {importNote ? (
         <div className="banner ok">
           <span>{importNote}</span>
@@ -124,7 +116,7 @@ export function LibraryView({ onOpen }: Props) {
               <h3>{piece.title}</h3>
               <p>{piece.composer}</p>
               <p className="meta">
-                {KEY_NAMES[piece.keySignature] ?? 'До мажор'} · {piece.timeSignature[0]}/{piece.timeSignature[1]} ·{' '}
+                {keyName(piece.keySignature, piece.mode)} · {piece.timeSignature[0]}/{piece.timeSignature[1]} ·{' '}
                 {piece.tempo} BPM · ~{minutes || 1} мин
               </p>
               <p className="meta">
@@ -149,7 +141,16 @@ export function LibraryView({ onOpen }: Props) {
                   Учить
                 </button>
                 {piece.source === 'imported' ? (
-                  <button type="button" className="btn ghost" onClick={() => deletePiece(piece.id)}>
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    onClick={() => {
+                      // The original file is not kept, so a deleted piece can only come back by importing it again.
+                      if (window.confirm(`Удалить «${piece.title}» из библиотеки? Вернуть можно только повторным импортом.`)) {
+                        void deletePiece(piece.id)
+                      }
+                    }}
+                  >
                     Удалить
                   </button>
                 ) : null}

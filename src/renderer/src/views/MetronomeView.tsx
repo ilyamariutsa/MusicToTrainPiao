@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { initAudio, Tone } from '../lib/audio'
+import { initAudio, playClick, Tone } from '../lib/audio'
+
+const BPM_MIN = 40
+const BPM_MAX = 208
 
 export function MetronomeView() {
   const [bpm, setBpm] = useState(92)
   const [beats, setBeats] = useState(4)
   const [running, setRunning] = useState(false)
   const [beat, setBeat] = useState(0)
-  const click = useRef<Tone.MembraneSynth | null>(null)
+  const beatsRef = useRef(beats)
+  beatsRef.current = beats
+  const taps = useRef<number[]>([])
 
   useEffect(() => {
     return () => {
@@ -15,26 +20,27 @@ export function MetronomeView() {
     }
   }, [])
 
+  // Tempo follows the slider while it plays.
+  useEffect(() => {
+    Tone.getTransport().bpm.value = bpm
+  }, [bpm])
+
   async function start() {
     await initAudio()
-    if (!click.current) {
-      click.current = new Tone.MembraneSynth({
-        envelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.05 }
-      }).toDestination()
-      click.current.volume.value = -10
-    }
     const transport = Tone.getTransport()
     transport.stop()
     transport.cancel()
+    transport.position = 0
     transport.bpm.value = bpm
-    let i = 0
+    let count = 0
     transport.scheduleRepeat((time) => {
-      const accent = i % beats === 0
-      click.current?.triggerAttackRelease(accent ? 'C4' : 'G3', 0.05, time)
-      Tone.getDraw().schedule(() => setBeat(i % beats), time)
-      i += 1
+      // Beats per bar are read on every click, so changing them does not need a restart.
+      const n = count % beatsRef.current
+      count += 1
+      playClick(n === 0, time)
+      Tone.getDraw().schedule(() => setBeat(n), time)
     }, '4n')
-    transport.start()
+    transport.start('+0.05')
     setRunning(true)
   }
 
@@ -43,6 +49,17 @@ export function MetronomeView() {
     Tone.getTransport().cancel()
     setRunning(false)
     setBeat(0)
+  }
+
+  /** Tap the beat a few times: the tempo becomes the average of the last taps. */
+  function tap() {
+    const now = performance.now()
+    const recent = [...taps.current.filter((t) => now - t < 2500), now].slice(-6)
+    taps.current = recent
+    if (recent.length < 2) return
+    const gaps = recent.slice(1).map((t, i) => t - recent[i])
+    const average = gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length
+    setBpm(Math.min(BPM_MAX, Math.max(BPM_MIN, Math.round(60000 / average))))
   }
 
   return (
@@ -57,22 +74,29 @@ export function MetronomeView() {
       <div className="metronome">
         <div className="metro-beats">
           {Array.from({ length: beats }, (_, i) => (
-            <span key={i} className={running && i === beat ? 'pulse on' : 'pulse'} />
+            <span key={i} className={running && i === beat ? (i === 0 ? 'pulse on accent' : 'pulse on') : 'pulse'} />
           ))}
         </div>
         <strong className="metro-bpm">{bpm}</strong>
-        <input type="range" min={40} max={208} value={bpm} onChange={(e) => setBpm(Number(e.target.value))} />
+        <div className="metro-row">
+          <button type="button" className="btn icon" onClick={() => setBpm((v) => Math.max(BPM_MIN, v - 1))} aria-label="Медленнее">
+            −
+          </button>
+          <input
+            type="range"
+            min={BPM_MIN}
+            max={BPM_MAX}
+            value={bpm}
+            onChange={(e) => setBpm(Number(e.target.value))}
+            aria-label="Темп, ударов в минуту"
+          />
+          <button type="button" className="btn icon" onClick={() => setBpm((v) => Math.min(BPM_MAX, v + 1))} aria-label="Быстрее">
+            +
+          </button>
+        </div>
         <label>
           Долей в такте
-          <select
-            value={beats}
-            onChange={(e) => {
-              setBeats(Number(e.target.value))
-              if (running) {
-                stop()
-              }
-            }}
-          >
+          <select value={beats} onChange={(e) => setBeats(Number(e.target.value))}>
             <option value={2}>2</option>
             <option value={3}>3</option>
             <option value={4}>4</option>
@@ -80,12 +104,18 @@ export function MetronomeView() {
           </select>
         </label>
         <div className="btn-row">
-          <button type="button" className="btn primary" onClick={() => void start()} disabled={running}>
-            Старт
+          <button type="button" className="btn" onClick={tap} title="Простучите темп несколько раз">
+            Простучать темп
           </button>
-          <button type="button" className="btn ghost" onClick={stop}>
-            Стоп
-          </button>
+          {running ? (
+            <button type="button" className="btn primary" onClick={stop}>
+              Стоп
+            </button>
+          ) : (
+            <button type="button" className="btn primary" onClick={() => void start()}>
+              Старт
+            </button>
+          )}
         </div>
       </div>
     </div>

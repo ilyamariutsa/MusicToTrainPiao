@@ -57,19 +57,25 @@ export async function createDesktopShortcuts(): Promise<{ desktop: string; start
     }
   }
 
+  // PowerShell single-quoted strings take backslashes literally (JSON escaping would double them).
+  const ps = (value: string): string => `'${value.replace(/'/g, "''")}'`
+  // The installer's Start Menu shortcut carries the taskbar id (AppUserModelID), which
+  // PowerShell cannot write: it is only created here when it is missing, never replaced.
+  const targets = [appShortcut, ...(existsSync(startMenu) ? [] : [startMenu])]
   const script = `
     $w = New-Object -ComObject WScript.Shell
-    foreach ($path in @(${JSON.stringify(appShortcut)}, ${JSON.stringify(startMenu)})) {
-      if (Test-Path $path) { Remove-Item $path -Force }
+    foreach ($path in @(${targets.map(ps).join(', ')})) {
+      if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
       $s = $w.CreateShortcut($path)
-      $s.TargetPath = ${JSON.stringify(target)}
-      $s.WorkingDirectory = ${JSON.stringify(workDir)}
+      $s.TargetPath = ${ps(target)}
+      $s.WorkingDirectory = ${ps(workDir)}
       $s.WindowStyle = 1
-      $s.Description = "NotaMentor — учим мелодии на пианино"
-      $s.IconLocation = ${JSON.stringify(iconForShortcut + ',0')}
+      $s.Description = 'NotaMentor — учим мелодии на пианино'
+      $s.IconLocation = ${ps(iconForShortcut + ',0')}
       $s.Save()
     }
   `
-  await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script])
+  // windowsHide: no console window flashes over the app.
+  await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true })
   return { desktop: appShortcut, startMenu, icon: iconForShortcut }
 }

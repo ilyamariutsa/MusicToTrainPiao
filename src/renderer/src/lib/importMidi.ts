@@ -77,9 +77,7 @@ export function importMidi(buffer: ArrayBuffer, fileName: string): Piece {
     group: estimateDifficulty({ notes, tempo }),
     favorite: false,
     timeSignature: readTime(midi),
-    keySignature: midi.header.keySignatures[0]?.key
-      ? fifthsFromKey(midi.header.keySignatures[0].key)
-      : 0,
+    ...readKey(midi),
     tempo,
     notes,
     ...(pedal.length ? { pedal } : {}),
@@ -96,24 +94,18 @@ function readTime(midi: Midi): [number, number] {
   return [4, 4]
 }
 
-function fifthsFromKey(key: string): number {
-  const map: Record<string, number> = {
-    Cb: -7,
-    Gb: -6,
-    Db: -5,
-    Ab: -4,
-    Eb: -3,
-    Bb: -2,
-    F: -1,
-    C: 0,
-    G: 1,
-    D: 2,
-    A: 3,
-    E: 4,
-    B: 5,
-    'F#': 6,
-    'C#': 7
-  }
-  const root = key.replace(/m$/, '')
-  return map[root] ?? 0
+const MAJOR_FIFTHS: Record<string, number> = {
+  Cb: -7, Gb: -6, Db: -5, Ab: -4, Eb: -3, Bb: -2, F: -1, C: 0, G: 1, D: 2, A: 3, E: 4, B: 5, 'F#': 6, 'C#': 7
+}
+const MINOR_FIFTHS: Record<string, number> = {
+  Ab: -7, Eb: -6, Bb: -5, F: -4, C: -3, G: -2, D: -1, A: 0, E: 1, B: 2, 'F#': 3, 'C#': 4, 'G#': 5, 'D#': 6, 'A#': 7
+}
+
+/** Key signature and mode from the file's key event: A minor has no sharps, unlike A major. */
+function readKey(midi: Midi): { keySignature: number; mode?: 'minor' } {
+  const event = midi.header.keySignatures[0]
+  if (!event?.key) return { keySignature: 0 }
+  const root = event.key.replace(/m$/, '')
+  const minor = event.scale === 'minor' || event.key.endsWith('m')
+  return minor ? { keySignature: MINOR_FIFTHS[root] ?? 0, mode: 'minor' } : { keySignature: MAJOR_FIFTHS[root] ?? 0 }
 }
