@@ -2,6 +2,9 @@
   SetOutPath "$INSTDIR"
   CopyFiles /SILENT "$EXEPATH" "$INSTDIR\NotaMentor-Setup.exe"
   CreateShortCut "$INSTDIR\NotaMentor.lnk" "$INSTDIR\NotaMentor.exe" "" "$INSTDIR\NotaMentor.ico" 0
+  ; An update first runs the old uninstaller, which removes these two, so they are made on every install.
+  CreateShortCut "$DESKTOP\NotaMentor.lnk" "$INSTDIR\NotaMentor.exe" "" "$INSTDIR\NotaMentor.exe" 0
+  CreateShortCut "$SMPROGRAMS\NotaMentor.lnk" "$INSTDIR\NotaMentor.exe" "" "$INSTDIR\NotaMentor.exe" 0
 !macroend
 
 !macro customUnInstall

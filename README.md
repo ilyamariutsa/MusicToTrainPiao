@@ -29,9 +29,19 @@ npm run dev
 npm run dist
 ```
 
-Готовый файл: `release/NotaMentor-Setup-1.0.0.exe`.
+Готовый файл: `release/NotaMentor-Setup-<версия>.exe` (версия — из `package.json`).
 
-Это обычный установщик Windows (NSIS): можно выбрать папку, создаются ярлыки на рабочем столе и в меню «Пуск». Друзья устанавливают его как любое другое ПО. Интернет для встроенных пьес и тренажёра не нужен.
+Это обычный установщик Windows (NSIS): можно выбрать папку, создаются ярлыки на рабочем столе и в меню «Пуск», при обновлении они сохраняются. Друзья устанавливают его как любое другое ПО. Интернет для встроенных пьес и тренажёра не нужен.
+
+Чтобы `NotaMentor.exe` получил свою иконку и название (а не «Electron»), сборщику нужен набор утилит winCodeSign. Без режима разработчика Windows он не распаковывается сам из-за двух символьных ссылок для macOS. Тогда распакуйте его вручную один раз:
+
+```bash
+node_modules\7zip-bin\win\x64\7za.exe x winCodeSign-2.6.0.7z -o"%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\winCodeSign-2.6.0"
+```
+
+(команда из папки проекта, архив предварительно скачан в неё)
+
+Архив — https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z, ошибки про `darwin/*.dylib` можно игнорировать.
 
 ## Откуда брать ноты
 
