@@ -15,6 +15,13 @@ export interface ScoreNote {
   staff?: 1 | 2
   voice?: number
   finger?: Finger
+  /**
+   * Tied from the previous note of the same pitch: it keeps that note sounding.
+   * Not struck again when played, not asked for in practice.
+   */
+  tied?: boolean
+  /** Loudness 0–1 from the score's dynamics or the MIDI file. */
+  velocity?: number
 }
 
 export interface ScoreBar {
@@ -38,6 +45,8 @@ export interface Piece {
   notes: ScoreNote[]
   /** One entry per measure, including meter changes. */
   bars?: ScoreBar[]
+  /** Sustain pedal held down, as [from, to] in beats. */
+  pedal?: Array<[number, number]>
   createdAt: string
   lastPracticedAt?: string
   practiceSeconds: number
@@ -73,6 +82,8 @@ export interface AppSettings {
   showStaffGuide: boolean
   beginnerMode: boolean
   sidebarCollapsed: boolean
+  /** Master volume, 0–100 %. */
+  volume: number
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -81,7 +92,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showRuNames: true,
   showStaffGuide: true,
   beginnerMode: true,
-  sidebarCollapsed: false
+  sidebarCollapsed: false,
+  volume: 80
 }
 
 /** Typical digital-piano ranges, inclusive MIDI numbers. */

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { initAudio, playNotes } from '../lib/audio'
 import { listMidiInputs } from '../lib/midiInput'
 import { useLibrary } from '../store'
 import { KEYBOARD_PRESETS, type KeyCount } from '../types'
@@ -34,7 +35,7 @@ export function SettingsView() {
               key={count}
               type="button"
               className={settings.keyCount === count ? 'chip active' : 'chip'}
-              onClick={() => void updateSettings({ keyCount })}
+              onClick={() => void updateSettings({ keyCount: count })}
             >
               {KEYBOARD_PRESETS[count].label}
             </button>
@@ -51,7 +52,7 @@ export function SettingsView() {
             checked={settings.beginnerMode}
             onChange={(e) => void updateSettings({ beginnerMode: e.target.checked })}
           />
-          Режим новичка: крупные ориентиры, до первой выделена, можно подглядывать на клавиши
+          Режим новичка: крупные ориентиры, до первой выделена, в тренажёре можно подсмотреть клавишу
         </label>
         <label className="check">
           <input
@@ -61,6 +62,33 @@ export function SettingsView() {
           />
           Подпись «До» на начале каждой октавы
         </label>
+      </section>
+
+      <section className="panel">
+        <h2>Звук</h2>
+        <div className="btn-row" style={{ marginLeft: 0, alignItems: 'center' }}>
+          <label className="tempo volume">
+            Громкость {settings.volume}%
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={settings.volume}
+              onChange={(e) => void updateSettings({ volume: Number(e.target.value) })}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => void initAudio().then(() => playNotes([48, 60, 64, 67, 72], 2.2, 0.7))}
+          >
+            Проверить звук
+          </button>
+        </div>
+        <p className="hint">
+          Рояль — Salamander Grand Piano V3 (Yamaha C5), запись Alexander Holm, лицензия CC BY 3.0. Работает без
+          интернета. Сила нажатия MIDI-клавиатуры передаётся в звук.
+        </p>
       </section>
 
       <section className="panel">

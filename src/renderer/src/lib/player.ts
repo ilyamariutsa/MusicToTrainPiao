@@ -1,6 +1,6 @@
 import type { Hand, Piece, ScoreNote } from '../types'
 import { getTransport, playNotes, releaseAll, Tone } from './audio'
-import { groupNotesAtTime, nextEventTime, noteHand } from './theory'
+import { groupNotesAtTime, nextEventTime, noteHand, pedalRelease, soundingBeats, struck } from './theory'
 
 export type PlayerCallbacks = {
   onCursor: (time: number, notes: ScoreNote[]) => void
@@ -34,7 +34,10 @@ export class ScorePlayer {
 
   play(piece: Piece, options: { start: number; end: number; tempo: number; hand: Hand; metronome: boolean } & PlayerCallbacks): void {
     this.stop()
-    const notes = filterByHand(piece.notes, options.hand)
+    const inHand = filterByHand(piece.notes, options.hand)
+    // A tied note is struck once and held through its ties; the pedal holds it longer still.
+    const lengths = soundingBeats(inHand)
+    const notes = struck(inHand)
       .filter((n) => n.time >= options.start - 0.001 && n.time < options.end - 0.001)
       .sort((a, b) => a.time - b.time)
 
@@ -47,11 +50,13 @@ export class ScorePlayer {
       const chord = groupNotesAtTime(notes, time)
       const when = (time - options.start) * beat
       const id = transport.schedule((audioTime) => {
-        const dur = Math.max(...chord.map((n) => n.duration)) * beat
-        playNotes(
-          chord.map((n) => n.midi),
-          Math.max(0.18, dur * 0.92)
-        )
+        for (const note of chord) {
+          const end = time + (lengths.get(note.id) ?? note.duration)
+          const release = pedalRelease(piece.pedal, end)
+          // Without pedal a key comes up a hair early, so repeated notes stay distinct.
+          const seconds = release > end ? (release - time) * beat : (end - time) * beat * 0.92
+          playNotes([note.midi], Math.max(0.18, seconds), note.velocity ?? 0.7, audioTime)
+        }
         Tone.getDraw().schedule(() => options.onCursor(time, chord), audioTime)
       }, when)
       this.ids.push(id)
@@ -88,16 +93,21 @@ export class ScorePlayer {
   }
 }
 
+/** Keys to press: struck notes only, a tied continuation is already held. */
+export function playable(notes: ScoreNote[], hand: Hand): ScoreNote[] {
+  return struck(filterByHand(notes, hand))
+}
+
 export function expectedMidis(notes: ScoreNote[], time: number, hand: Hand): number[] {
-  return groupNotesAtTime(filterByHand(notes, hand), time).map((n) => n.midi)
+  return groupNotesAtTime(playable(notes, hand), time).map((n) => n.midi)
 }
 
 export function firstEvent(notes: ScoreNote[], start: number, hand: Hand): number | null {
-  const filtered = filterByHand(notes, hand).filter((n) => n.time >= start - 0.001)
+  const filtered = playable(notes, hand).filter((n) => n.time >= start - 0.001)
   if (filtered.length === 0) return null
   return Math.min(...filtered.map((n) => n.time))
 }
 
 export function stepEvent(notes: ScoreNote[], from: number, hand: Hand): number | null {
-  return nextEventTime(filterByHand(notes, hand), from)
+  return nextEventTime(playable(notes, hand), from)
 }

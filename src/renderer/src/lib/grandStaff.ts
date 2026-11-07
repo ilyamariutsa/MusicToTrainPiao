@@ -4,15 +4,28 @@ const LETTER = [0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6]
 /** Distance between adjacent staff lines (px). */
 export const SPACE = 12
 export const STEP = SPACE / 2
-/** Whole note fills a space and is crossed through the middle on a line. */
-export const NOTE_RY = SPACE / 2 - 0.65
-export const NOTE_RX = NOTE_RY * 1.35
-/** Raise the whole-note row so the oval sits on the staff line. */
-export const NOTE_LIFT = 3
 /** VexFlow odd-width strokes sit on the half-pixel. */
 export const LINE_SNAP = 0.5
 /** Extra width past the outermost note of a ledger fragment. */
 export const LEDGER_PAD = SPACE * 1.15
+
+/**
+ * SMuFL engraving font bundled with VexFlow. 1 em = 4 staff spaces, and every glyph
+ * is drawn so that its origin (alphabetic baseline) sits exactly on its pitch:
+ * a notehead is centred on it, a sharp too, a flat has its bowl there, a G clef curls
+ * around the G line. No font-metric guessing is needed to place them.
+ */
+export const MUSIC_FONT = 'Bravura'
+export const MUSIC_EM = SPACE * 4
+export const GLYPH = {
+  gClef: '',
+  fClef: '',
+  noteheadWhole: '',
+  sharp: '',
+  flat: ''
+} as const
+/** SMuFL engravingDefaults.legerLineExtension, in staff spaces. */
+export const LEDGER_EXTENSION = 0.4
 
 /** Room for brace + clefs; piano is indented by the same amount. */
 export const STAFF_GUTTER = 92

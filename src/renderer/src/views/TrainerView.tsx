@@ -30,8 +30,12 @@ export function TrainerView() {
   const [message, setMessage] = useState('Нажмите клавишу, которая соответствует ноте')
   const [flash, setFlash] = useState<number[]>([])
   const [wrong, setWrong] = useState<number[]>([])
+  const [peeked, setPeeked] = useState(false)
   const midiRef = useRef(midi)
   const scopeRef = useRef(scope)
+  /** Only the first answer to a note counts, and never after a peek. */
+  const countedRef = useRef(false)
+  const peekedRef = useRef(false)
   midiRef.current = midi
   scopeRef.current = scope
 
@@ -40,6 +44,9 @@ export function TrainerView() {
     setClef(nextClef)
     setMidi(randomMidi(nextClef))
     setReveal(false)
+    setPeeked(false)
+    countedRef.current = false
+    peekedRef.current = false
     setFlash([])
     setWrong([])
     setMessage('Нажмите клавишу, которая соответствует ноте')
@@ -57,8 +64,8 @@ export function TrainerView() {
     }
     window.addEventListener('keydown', onKey)
     let unsub = () => undefined as void
-    void subscribeMidi((value, _v, on) => {
-      if (on) void answer(value)
+    void subscribeMidi((value, velocity, on) => {
+      if (on) void answer(value, velocity)
     }).then((fn) => {
       unsub = fn
     })
@@ -68,16 +75,22 @@ export function TrainerView() {
     }
   }, [])
 
-  async function answer(value: number) {
+  async function answer(value: number, velocity = 0.8) {
     await initAudio()
-    playNote(value, 0.4)
+    playNote(value, 0.4, velocity)
     const expected = midiRef.current
     const ok = value === expected
+    const counts = !countedRef.current && !peekedRef.current
+    countedRef.current = true
     setReveal(true)
-    await recordTrainer(ok)
+    if (counts) await recordTrainer(ok)
     if (ok) {
       setFlash([value])
-      setMessage(`Верно: ${midiToRu(expected)} (${midiToName(expected)})`)
+      setMessage(
+        counts
+          ? `Верно: ${midiToRu(expected)} (${midiToName(expected)})`
+          : `Да, это ${midiToRu(expected)}. С подсказкой — в статистику не идёт`
+      )
       window.setTimeout(() => next(scopeRef.current), 700)
     } else {
       setWrong([value])
@@ -135,13 +148,25 @@ export function TrainerView() {
           <button type="button" className="btn" onClick={() => void initAudio().then(() => playNote(midi, 0.6))}>
             Подсказать звуком
           </button>
+          {settings.beginnerMode && !reveal && !peeked ? (
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => {
+                peekedRef.current = true
+                setPeeked(true)
+              }}
+            >
+              Подсмотреть клавишу
+            </button>
+          ) : null}
         </div>
       </div>
 
       <PianoKeyboard
         fromMidi={range.fromMidi}
         toMidi={range.toMidi}
-        expectedMidis={settings.beginnerMode || reveal ? [midi] : []}
+        expectedMidis={reveal || peeked ? [midi] : []}
         activeMidis={flash}
         wrongMidis={wrong}
         showNames={settings.showNoteNames}

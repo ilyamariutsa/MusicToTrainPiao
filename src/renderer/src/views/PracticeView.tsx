@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { FingeringCoach } from '../components/FingeringCoach'
+import { guideRange } from '../components/KeyStaffMap'
 import { PianoKeyboard } from '../components/PianoKeyboard'
 import { ScoreView } from '../components/ScoreView'
 import { initAudio, playNote } from '../lib/audio'
 import { midiFromKeyboardEvent } from '../lib/keyboardMap'
 import { subscribeMidi } from '../lib/midiInput'
-import { expectedMidis, firstEvent, ScorePlayer, stepEvent } from '../lib/player'
-import { beatsToRu, KEY_NAMES, measureContaining, midiToRu, noteHand, phraseBounds } from '../lib/theory'
+import { expectedMidis, firstEvent, playable, ScorePlayer, stepEvent } from '../lib/player'
+import { beatsToRu, KEY_NAMES, measureContaining, midiToRu, noteHand, phraseBounds, soundingBeats } from '../lib/theory'
 import { useLibrary } from '../store'
-import { KEYBOARD_PRESETS, type Finger, type Hand, type Piece } from '../types'
+import { KEYBOARD_PRESETS, type Finger, type Hand, type Piece, type ScoreNote } from '../types'
 
 type Props = {
   piece: Piece
@@ -47,14 +48,22 @@ export function PracticeView({ piece }: Props) {
   cursorRef.current = cursor
 
   const sections = useMemo(() => phraseBounds(piece), [piece])
+  const keysShown = useMemo(() => guideRange(piece.notes), [piece.notes])
   const section = sections[Math.min(sectionIdx, sections.length - 1)] ?? sections[0]
   const sectionRef = useRef(section)
   sectionRef.current = section
   const duration = sections[0]?.end ?? 0
+  // Keys to press now; a tied continuation is held, not pressed again.
   const currentNotes = useMemo(
-    () => piece.notes.filter((n) => Math.abs(n.time - cursor) < 0.03 && (hand === 'both' || noteHand(n) === hand)),
+    () =>
+      piece.notes.filter(
+        (n) => !n.tied && Math.abs(n.time - cursor) < 0.03 && (hand === 'both' || noteHand(n) === hand)
+      ),
     [piece.notes, cursor, hand]
   )
+  const lengths = useMemo(() => soundingBeats(piece.notes), [piece.notes])
+  const lengthsRef = useRef(lengths)
+  lengthsRef.current = lengths
   const fingers = useMemo(() => {
     const map: Partial<Record<number, Finger>> = {}
     for (const note of currentNotes) {
@@ -67,10 +76,12 @@ export function PracticeView({ piece }: Props) {
   const tempoRef = useRef(tempo)
   tempoRef.current = tempo
 
-  function applyHold(notes: { midi: number; duration: number }[]) {
+  /** Hold bars last as long as the note sounds, ties included. */
+  function applyHold(notes: ScoreNote[]) {
     const msMap: Partial<Record<number, number>> = {}
     for (const note of notes) {
-      msMap[note.midi] = (note.duration * 60 * 1000) / tempoRef.current
+      const beats = lengthsRef.current.get(note.id) ?? note.duration
+      msMap[note.midi] = (beats * 60 * 1000) / tempoRef.current
     }
     setHoldMs(msMap)
   }
@@ -79,6 +90,7 @@ export function PracticeView({ piece }: Props) {
     const current = pieceRef.current
     const notes = current.notes.filter(
       (n) =>
+        !n.tied &&
         Math.abs(n.time - time) < 0.03 &&
         (handRef.current === 'both' || noteHand(n) === handRef.current)
     )
@@ -128,9 +140,9 @@ export function PracticeView({ piece }: Props) {
     }
     window.addEventListener('keydown', onKey)
     let unsub = () => undefined as void
-    void subscribeMidi((midi, _v, on) => {
+    void subscribeMidi((midi, velocity, on) => {
       if (on) {
-        void initAudio().then(() => handleInput(midi))
+        void initAudio().then(() => handleInput(midi, velocity))
       }
     }).then((fn) => {
       unsub = fn
@@ -141,13 +153,15 @@ export function PracticeView({ piece }: Props) {
     }
   }, [])
 
-  function handleInput(midi: number) {
+  /** `velocity` 0–1 comes from a MIDI keyboard; mouse and computer keys play mezzo-forte. */
+  function handleInput(midi: number, velocity = 0.8) {
     const current = pieceRef.current
     const waiting = modeRef.current === 'wait' || modeRef.current === 'step'
     const neededNow = expectedMidis(current.notes, cursorRef.current, handRef.current)
-    const holdBeats = current.notes.find((n) => Math.abs(n.time - cursorRef.current) < 0.03 && n.midi === midi)?.duration ?? 0.5
+    const target = current.notes.find((n) => !n.tied && Math.abs(n.time - cursorRef.current) < 0.03 && n.midi === midi)
+    const holdBeats = target ? lengthsRef.current.get(target.id) ?? target.duration : 0.5
     const holdSec = (holdBeats * 60) / tempoRef.current
-    playNote(midi, waiting ? Math.max(0.2, holdSec) : 0.35)
+    playNote(midi, waiting ? Math.max(0.2, holdSec) : 0.35, velocity)
     setActive([midi])
     if (!waiting) return
     if (neededNow.length === 0) return
@@ -156,6 +170,7 @@ export function PracticeView({ piece }: Props) {
       if (neededNow.every((n) => pending.current.has(n))) {
         const chord = current.notes.filter(
           (n) =>
+            !n.tied &&
             Math.abs(n.time - cursorRef.current) < 0.03 &&
             (handRef.current === 'both' || noteHand(n) === handRef.current)
         )
@@ -219,9 +234,13 @@ export function PracticeView({ piece }: Props) {
 
   function goPrev() {
     const current = pieceRef.current
-    const times = [...new Set(current.notes.filter((n) => n.time < cursorRef.current - 0.001).map((n) => n.time))].sort(
-      (a, b) => b - a
-    )
+    const times = [
+      ...new Set(
+        playable(current.notes, handRef.current)
+          .filter((n) => n.time < cursorRef.current - 0.001)
+          .map((n) => n.time)
+      )
+    ].sort((a, b) => b - a)
     const prev = times[0]
     if (prev == null || prev < sectionRef.current.start) return
     setStepReady(false)
@@ -360,6 +379,7 @@ export function PracticeView({ piece }: Props) {
         holdMs={holdMs}
         showNames={settings.showNoteNames}
         guideNotes={currentNotes}
+        guideRange={keysShown}
         keySignature={piece.keySignature}
         onNote={(midi) => void initAudio().then(() => handleInput(midi))}
       />

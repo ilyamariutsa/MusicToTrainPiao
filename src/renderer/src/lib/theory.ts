@@ -131,6 +131,64 @@ export function pieceDuration(notes: ScoreNote[]): number {
   return Math.max(...notes.map((n) => n.time + n.duration))
 }
 
+const TIE_EPS = 0.02
+
+/** Notes that are actually struck; a tied continuation only keeps the earlier one sounding. */
+export function struck<T extends ScoreNote>(notes: T[]): T[] {
+  return notes.filter((n) => !n.tied)
+}
+
+/** For every tied note, the note it continues (same pitch, ending exactly where it starts). */
+export function tiePredecessors(notes: ScoreNote[]): Map<string, ScoreNote> {
+  const sorted = [...notes].sort((a, b) => a.time - b.time || a.midi - b.midi)
+  const open = new Map<number, ScoreNote>()
+  const previous = new Map<string, ScoreNote>()
+  for (const note of sorted) {
+    const before = open.get(note.midi)
+    if (note.tied && before && Math.abs(before.time + before.duration - note.time) < TIE_EPS) {
+      previous.set(note.id, before)
+    }
+    open.set(note.midi, note)
+  }
+  return previous
+}
+
+/** How long each struck note really sounds, in beats, following its chain of ties. */
+export function soundingBeats(notes: ScoreNote[]): Map<string, number> {
+  const previous = tiePredecessors(notes)
+  const head = new Map<string, ScoreNote>()
+  const lengths = new Map<string, number>()
+  for (const note of [...notes].sort((a, b) => a.time - b.time)) {
+    const before = previous.get(note.id)
+    const first = before ? head.get(before.id) ?? before : note
+    head.set(note.id, first)
+    lengths.set(first.id, note.time + note.duration - first.time)
+  }
+  return lengths
+}
+
+/** Pedal down/up events → held spans. A new "down" while held is a pedal change. */
+export function pedalSpans(events: Array<{ time: number; down: boolean }>, end: number): Array<[number, number]> {
+  const spans: Array<[number, number]> = []
+  let downAt: number | null = null
+  for (const event of [...events].sort((a, b) => a.time - b.time)) {
+    if (downAt != null && event.time > downAt + 0.001) spans.push([downAt, event.time])
+    if (event.down) downAt = downAt != null && event.time <= downAt + 0.001 ? downAt : event.time
+    else downAt = null
+  }
+  if (downAt != null && end > downAt + 0.001) spans.push([downAt, roundBeat(end)])
+  return spans
+}
+
+/** A note released inside a pedal span keeps sounding until the pedal comes up. */
+export function pedalRelease(pedal: Array<[number, number]> | undefined, end: number): number {
+  if (!pedal) return end
+  for (const [down, up] of pedal) {
+    if (down < end - 0.001 && end < up - 0.001) return up
+  }
+  return end
+}
+
 export function groupNotesAtTime(notes: ScoreNote[], time: number, epsilon = 0.02): ScoreNote[] {
   return notes.filter((n) => Math.abs(n.time - time) < epsilon)
 }

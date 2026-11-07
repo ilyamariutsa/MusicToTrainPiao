@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- NotaMentor app icon, 32 px and up. Flat: tile, three keys of a C–D–E group, one note. -->
+  <rect x="48" y="48" width="928" height="928" rx="232" fill="#2b3245"/>
+  <g transform="translate(0 44)">
+    <rect x="212" y="440" width="184" height="372" rx="56" fill="#f6f1e7"/>
+    <rect x="420" y="440" width="184" height="372" rx="56" fill="#f6f1e7"/>
+    <rect x="628" y="440" width="184" height="372" rx="56" fill="#f6f1e7"/>
+    <!-- Black keys are cut out of the white ones, ringed by the tile colour. -->
+    <rect x="348" y="400" width="120" height="256" rx="46" fill="#2b3245" stroke="#2b3245" stroke-width="24"/>
+    <rect x="556" y="400" width="120" height="256" rx="46" fill="#2b3245" stroke="#2b3245" stroke-width="24"/>
+    <g fill="#e0c27a">
+      <ellipse cx="452" cy="286" rx="90" ry="70" transform="rotate(-22 452 286)"/>
+      <rect x="500" y="92" width="46" height="200" rx="23"/>
+    </g>
+    <path d="M523 116 C 612 134 676 196 650 286" fill="none" stroke="#e0c27a" stroke-width="46" stroke-linecap="round"/>
+  </g>
+</svg>

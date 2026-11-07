@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { loadPiano, setMasterVolume } from './lib/audio'
 import { assignFingering } from './lib/fingering'
 import { importPickedFile } from './lib/importFiles'
 import { BUILTIN_PIECES } from './lib/pieces'
@@ -82,8 +83,14 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Mutators read the latest data from refs, not from render closures: screens keep
+  // callbacks in effects and unmount cleanups, and a stale copy would overwrite newer changes.
+  const piecesRef = useRef<Piece[]>([])
+  const statsRef = useRef<AppStats>(FALLBACK_STATS)
+  const settingsRef = useRef<AppSettings>(DEFAULT_SETTINGS)
 
   const persistPieces = useCallback(async (next: Piece[]) => {
+    piecesRef.current = next
     setPieces(next)
     if (hasDesktopApi()) {
       await window.notamentor.saveLibrary({ pieces: next })
@@ -93,6 +100,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const persistStats = useCallback(async (next: AppStats) => {
+    statsRef.current = next
     setStats(next)
     if (hasDesktopApi()) {
       await window.notamentor.saveStats(next)
@@ -102,7 +110,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const persistSettings = useCallback(async (next: AppSettings) => {
+    settingsRef.current = next
     setSettings(next)
+    setMasterVolume(next.volume)
     if (hasDesktopApi()) {
       await window.notamentor.saveSettings(next)
     } else {
@@ -126,13 +136,22 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           ? ((await window.notamentor.getSettings()) as AppSettings)
           : ({ ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem('notamentor.settings') || '{}') } as AppSettings)
         if (cancelled) return
+        const nextStats = { ...FALLBACK_STATS, ...loadedStats }
+        const nextSettings = { ...DEFAULT_SETTINGS, ...loadedSettings }
+        piecesRef.current = next
+        statsRef.current = nextStats
+        settingsRef.current = nextSettings
         setPieces(next)
-        setStats({ ...FALLBACK_STATS, ...loadedStats })
-        setSettings({ ...DEFAULT_SETTINGS, ...loadedSettings })
+        setStats(nextStats)
+        setSettings(nextSettings)
+        setMasterVolume(nextSettings.volume)
+        // Decode the piano samples in the background so the first key already sounds right.
+        loadPiano()
         if (hasDesktopApi()) await window.notamentor.saveLibrary({ pieces: next })
       } catch (err) {
         if (!cancelled) {
-          setPieces(mergePieces([]))
+          piecesRef.current = mergePieces([])
+          setPieces(piecesRef.current)
           setError(err instanceof Error ? err.message : 'Не удалось открыть библиотеку')
         }
       } finally {
@@ -146,26 +165,26 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const savePiece = useCallback(
     async (piece: Piece) => {
-      const next = [...pieces.filter((p) => p.id !== piece.id), piece]
+      const next = [...piecesRef.current.filter((p) => p.id !== piece.id), piece]
       await persistPieces(next)
     },
-    [pieces, persistPieces]
+    [persistPieces]
   )
 
   const updatePiece = useCallback(
     async (id: string, patch: Partial<Piece>) => {
-      await persistPieces(pieces.map((p) => (p.id === id ? { ...p, ...patch } : p)))
+      await persistPieces(piecesRef.current.map((p) => (p.id === id ? { ...p, ...patch } : p)))
     },
-    [pieces, persistPieces]
+    [persistPieces]
   )
 
   const deletePiece = useCallback(
     async (id: string) => {
-      const target = pieces.find((p) => p.id === id)
+      const target = piecesRef.current.find((p) => p.id === id)
       if (!target || target.source === 'builtin') return
-      await persistPieces(pieces.filter((p) => p.id !== id))
+      await persistPieces(piecesRef.current.filter((p) => p.id !== id))
     },
-    [pieces, persistPieces]
+    [persistPieces]
   )
 
   const importFromDisk = useCallback(async () => {
@@ -182,13 +201,13 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         setError(err instanceof Error ? err.message : `Не удалось импортировать ${file.name}`)
       }
     }
-    if (imported.length) await persistPieces([...pieces, ...imported])
+    if (imported.length) await persistPieces([...piecesRef.current, ...imported])
     return imported
-  }, [pieces, persistPieces])
+  }, [persistPieces])
 
   const touchPractice = useCallback(
     async (id: string, seconds: number, accuracy?: number) => {
-      const nextPieces = pieces.map((p) =>
+      const nextPieces = piecesRef.current.map((p) =>
         p.id === id
           ? {
               ...p,
@@ -200,37 +219,40 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           : p
       )
       await persistPieces(nextPieces)
+      const stats = statsRef.current
       await persistStats({
         ...withStreak(stats),
         totalPracticeSeconds: stats.totalPracticeSeconds + seconds
       })
     },
-    [pieces, persistPieces, persistStats, stats]
+    [persistPieces, persistStats]
   )
 
   const recordTrainer = useCallback(
     async (correct: boolean) => {
+      const stats = statsRef.current
       await persistStats({
         ...withStreak(stats),
         trainerTotal: stats.trainerTotal + 1,
         trainerCorrect: stats.trainerCorrect + (correct ? 1 : 0)
       })
     },
-    [persistStats, stats]
+    [persistStats]
   )
 
   const recordWarmup = useCallback(async () => {
+    const stats = statsRef.current
     await persistStats({
       ...withStreak(stats),
       warmupSessions: stats.warmupSessions + 1
     })
-  }, [persistStats, stats])
+  }, [persistStats])
 
   const updateSettings = useCallback(
     async (patch: Partial<AppSettings>) => {
-      await persistSettings({ ...settings, ...patch })
+      await persistSettings({ ...settingsRef.current, ...patch })
     },
-    [persistSettings, settings]
+    [persistSettings]
   )
 
   const value = useMemo<LibraryState>(

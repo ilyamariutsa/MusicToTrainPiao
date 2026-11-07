@@ -14,6 +14,8 @@ type Props = {
   holdMs?: Partial<Record<number, number>>
   showNames?: boolean
   guideNotes?: ScoreNote[]
+  /** Keys shown with the staff guide; defaults to C2–B6. */
+  guideRange?: [number, number]
   keySignature?: number
   onNote?: (midi: number) => void
 }
@@ -28,11 +30,12 @@ export function PianoKeyboard({
   holdMs = {},
   showNames = true,
   guideNotes,
+  guideRange = [GUIDE_FROM_MIDI, GUIDE_TO_MIDI],
   keySignature = 0,
   onNote
 }: Props) {
-  const viewFrom = guideNotes ? GUIDE_FROM_MIDI : fromMidi
-  const viewTo = guideNotes ? GUIDE_TO_MIDI : toMidi
+  const viewFrom = guideNotes ? guideRange[0] : fromMidi
+  const viewTo = guideNotes ? guideRange[1] : toMidi
   const whites = useMemo(() => whiteKeys(viewFrom, viewTo), [viewFrom, viewTo])
   const blacks = useMemo(() => blackKeys(viewFrom, viewTo), [viewFrom, viewTo])
 
@@ -97,7 +100,7 @@ export function PianoKeyboard({
                 ['--hold-ms' as string]: `${holdMs[midi] ?? 0}ms`
               }}
               onMouseDown={() => onNote?.(midi)}
-              title={`${midiToRu(midi)}`}
+              title={midiToRu(midi, keySignature)}
             >
               {holdMs[midi] ? <span className="hold-bar" /> : null}
               {fingers[midi] ? <span className="piano-finger">{fingers[midi]}</span> : null}

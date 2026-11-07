@@ -1,8 +1,8 @@
 import type { Piece, PieceGroup } from '../types'
-import { noteHand } from './theory'
+import { noteHand, struck } from './theory'
 
 export function estimateDifficulty(piece: Pick<Piece, 'notes' | 'tempo'>): PieceGroup {
-  const notes = piece.notes
+  const notes = struck(piece.notes)
   if (notes.length === 0) return 'custom'
 
   const times = [...new Set(notes.map((n) => Math.round(n.time * 100) / 100))]

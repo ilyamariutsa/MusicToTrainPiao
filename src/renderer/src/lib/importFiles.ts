@@ -4,6 +4,7 @@ import { assignFingering } from './fingering'
 import { importMidi } from './importMidi'
 import { importMusicXml } from './importMusicXml'
 import { parseNotaDsl } from './notaDsl'
+import { uid } from './theory'
 
 function decodeBase64(base64: string): ArrayBuffer {
   const binary = atob(base64)
@@ -26,6 +27,8 @@ export async function importPickedFile(file: { name: string; ext: string; base64
     const text = new TextDecoder('utf-8').decode(buffer)
     const piece = parseNotaDsl(text, file.name.replace(/\.nota$/i, ''))
     assignFingering(piece.notes, { overwrite: piece.notes.every((note) => !note.finger) })
+    // The id in the file is not unique: importing it twice or reusing a built-in id would clash.
+    piece.id = uid('imp')
     piece.source = 'imported'
     piece.group = estimateDifficulty(piece)
     return piece

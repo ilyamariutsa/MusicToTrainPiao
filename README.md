@@ -65,3 +65,8 @@ LH: C3h.5 G2h.1 C3w.5
 
 Папка пользователя Windows: `%APPDATA%\NotaMentor\library`.
 Её можно открыть из раздела «Настройки».
+
+## Звук
+
+Рояль — [Salamander Grand Piano V3](https://creativecommons.org/licenses/by/3.0/) (Yamaha C5), запись Alexander Holm, лицензия CC BY 3.0.
+30 сэмплов лежат в `src/renderer/src/assets/piano`, работают без интернета. Громкость — в «Настройках».

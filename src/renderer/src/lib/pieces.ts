@@ -23,11 +23,11 @@ title: В лесу родилась ёлочка
 composer: Л. Бекман
 group: beginner
 tempo: 96
-time: 4/4
+time: 2/4
 key: 0
 ---
-RH: C4q.1 C4q.1 G4q.4 G4q.4 A4q.5 A4q.5 G4h.4 F4q.3 F4q.3 E4q.2 E4q.2 D4q.1 D4q.1 C4h.1 G4q.4 G4q.4 F4q.3 F4q.3 E4q.2 E4q.2 D4h.1 G4q.4 G4q.4 F4q.3 F4q.3 E4q.2 E4q.2 D4h.1 C4q.1 C4q.1 G4q.4 G4q.4 A4q.5 A4q.5 G4h.4 F4q.3 F4q.3 E4q.2 E4q.2 D4q.1 D4q.1 C4h.1
-LH: C3h.5 G2h.1 C3h.5 G2h.1 F2h.5 C3h.2 G2h.5 C3h.1 C3h.5 G2h.1 C3h.5 G2h.1 F2h.5 C3h.2 G2h.5 C3h.1 C3h.5 G2h.1 C3h.5 G2h.1 F2h.5 C3h.2 G2h.5 C3h.1
+RH: G4e E5e E5e D5e E5e C5e G4e G4e G4e E5e E5e F5e D5e G5qd G5e A5e A5e F5e F5e E5e D5e C5e C5e E5e E5e D5e E5e C5qd
+LH: C3h G2h C3h G2h F2h G2h C3h C3h
 `,
   `
 id: ode-to-joy
@@ -44,7 +44,7 @@ LH: C3h.5 G2h.1 C3h.5 G2h.1 C3h.5 G2h.1 C3h.5 G2h.1 C3h.5 G2h.1 C3h.5 G2h.1 C3h.
   `
 id: happy-birthday
 title: С днём рождения
-composer: Народна
+composer: Народная
 group: beginner
 tempo: 92
 time: 3/4
@@ -68,7 +68,7 @@ LH: C3h.5 G2h.1 C3h.5 G2h.1 G2h.1 D3h.2 G2h.1 D3h.2 C3h.5 G2h.1 C3h.5 E3h.3 G2h.
   `
 id: twinkle
 title: Звёздочка
-composer: Народна
+composer: Народная
 group: beginner
 tempo: 90
 time: 4/4

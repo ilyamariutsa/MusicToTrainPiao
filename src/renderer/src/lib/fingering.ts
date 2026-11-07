@@ -309,19 +309,21 @@ export function assignFingering(notes: ScoreNote[], opts?: { overwrite?: boolean
     }
   }
 
+  // A tied continuation is held, not played: it has no finger of its own.
+  const pressed = notes.filter((note) => !note.tied)
   applyHand(
-    notes.filter((note) => noteHand(note) === 'right'),
+    pressed.filter((note) => noteHand(note) === 'right'),
     true
   )
   applyHand(
-    notes.filter((note) => noteHand(note) === 'left'),
+    pressed.filter((note) => noteHand(note) === 'left'),
     false
   )
 
-  for (const group of groupByTime(notes.filter((note) => noteHand(note) === 'right'))) {
+  for (const group of groupByTime(pressed.filter((note) => noteHand(note) === 'right'))) {
     sanitizeChordGroup(group, true)
   }
-  for (const group of groupByTime(notes.filter((note) => noteHand(note) === 'left'))) {
+  for (const group of groupByTime(pressed.filter((note) => noteHand(note) === 'left'))) {
     sanitizeChordGroup(group, false)
   }
 

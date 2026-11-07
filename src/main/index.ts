@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync } from 'fs'
 import { dirname, extname, join } from 'path'
 import { fileURLToPath } from 'url'
+import { readJson, writeJson } from './jsonStore'
 import { appExecutable, createDesktopShortcuts } from './shortcuts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -24,19 +25,6 @@ function statsPath(): string {
 
 function settingsPath(): string {
   return join(dataDir(), 'settings.json')
-}
-
-function readJson<T>(file: string, fallback: T): T {
-  try {
-    if (!existsSync(file)) return fallback
-    return JSON.parse(readFileSync(file, 'utf-8')) as T
-  } catch {
-    return fallback
-  }
-}
-
-function writeJson(file: string, value: unknown): void {
-  writeFileSync(file, JSON.stringify(value, null, 2), 'utf-8')
 }
 
 function createWindow(): BrowserWindow {
@@ -151,7 +139,8 @@ ipcMain.handle('settings:get', () => {
     showRuNames: true,
     showStaffGuide: true,
     beginnerMode: true,
-    sidebarCollapsed: false
+    sidebarCollapsed: false,
+    volume: 80
   })
 })
 

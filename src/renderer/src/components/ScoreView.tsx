@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Accidental, Beam, Dot, Formatter, Renderer, Stave, StaveConnector, StaveNote, Voice } from 'vexflow'
+import { Accidental, Beam, Dot, Formatter, Renderer, Stave, StaveConnector, StaveNote, StaveTie, Voice } from 'vexflow'
 import {
   beatsToVexDuration,
   displayAccidental,
@@ -8,9 +8,13 @@ import {
   noteHand,
   notesInWindow,
   pieceBars,
-  roundBeat
+  roundBeat,
+  tiePredecessors
 } from '../lib/theory'
 import type { Clef, Piece, ScoreBar, ScoreNote } from '../types'
+
+/** Where each drawn note id ended up: its chord and the key index inside it. */
+type Drawn = Map<string, { note: StaveNote; index: number }>
 
 type Props = {
   piece: Piece
@@ -89,7 +93,7 @@ function fillTicks(notes: ScoreNote[], start: number, beats: number, keySignatur
   return ticks
 }
 
-function toStaveNotes(ticks: Tick[], clef: Clef, activeIds: Set<string>): StaveNote[] {
+function toStaveNotes(ticks: Tick[], clef: Clef, activeIds: Set<string>, drawn: Drawn): StaveNote[] {
   return ticks.map((tick) => {
     const note = new StaveNote({
       clef,
@@ -97,6 +101,7 @@ function toStaveNotes(ticks: Tick[], clef: Clef, activeIds: Set<string>): StaveN
       duration: tick.duration,
       autoStem: tick.rest
     })
+    tick.ids.forEach((id, index) => drawn.set(id, { note, index }))
     if (!tick.rest) note.setStemDirection(tick.stemUp ? 1 : -1)
     tick.accidentals.forEach((acc, idx) => {
       if (acc) note.addModifier(new Accidental(acc), idx)
@@ -129,9 +134,15 @@ export function ScoreView({ piece, cursorTime, activeIds = [], fromBeat }: Props
     const anchor = fromBeat ?? measureContaining(piece, cursorTime).start
     let index = bars.findIndex((bar) => Math.abs(bar.start - anchor) < 0.02)
     if (index < 0) index = Math.max(0, bars.findIndex((bar) => anchor >= bar.start - 0.001 && anchor < bar.end - 0.001))
-    const opener = bars[index] ?? measureContaining(piece, cursorTime)
-    const shownCount = opener.signature[1] >= 8 && opener.signature[0] <= 3 ? 4 : 2
-    const shown = bars.slice(index, index + shownCount)
+    // About two bars of 4/4 per screen; bars of any real length (irregular ones too) fit by their size.
+    const shown: ScoreBar[] = []
+    let beatsShown = 0
+    for (const bar of bars.slice(index)) {
+      const length = bar.end - bar.start
+      if (shown.length > 0 && (shown.length >= 4 || beatsShown + length > SCREEN_BEATS)) break
+      shown.push(bar)
+      beatsShown += length
+    }
     if (shown.length === 0) return
 
     const width = Math.max(640, host.clientWidth || 860)
@@ -142,24 +153,60 @@ export function ScoreView({ piece, cursorTime, activeIds = [], fromBeat }: Props
     ctx.setFont('Palatino Linotype', 13)
 
     const active = new Set(activeIds)
-    const staveWidth = (width - 28) / shown.length
-
+    const drawn: Drawn = new Map()
+    // Width follows the music in the bar; the first one also carries clef, key and time.
+    const weights = shown.map((bar, i) => bar.end - bar.start + 1 + (i === 0 ? 1.5 : 0))
+    const unit = (width - 28) / weights.reduce((sum, w) => sum + w, 0)
+    let x = 14
     shown.forEach((bar, i) => {
-      drawMeasure(ctx, piece, bar, shown[i - 1], 14 + i * staveWidth, staveWidth - 10, active)
+      const staveWidth = weights[i] * unit
+      drawMeasure(ctx, piece, bar, shown[i - 1], x, staveWidth - 10, active, drawn)
+      x += staveWidth
     })
+    drawTies(ctx, piece, drawn)
   }, [piece, cursorTime, activeIds, fromBeat])
 
   return <div className="score-host" ref={hostRef} />
 }
 
+const SCREEN_BEATS = 8.5
+
+type Ctx = InstanceType<typeof Renderer>['getContext'] extends () => infer T ? T : never
+
+/** Tie arcs between drawn notes; a tie into or out of the shown bars is drawn up to the edge. */
+function drawTies(ctx: Ctx, piece: Piece, drawn: Drawn): void {
+  const staffOf = (note: ScoreNote): number => note.staff ?? (noteHand(note) === 'right' ? 1 : 2)
+  const byId = new Map(piece.notes.map((note) => [note.id, note]))
+  for (const [id, before] of tiePredecessors(piece.notes)) {
+    const note = byId.get(id)
+    if (!note || staffOf(note) !== staffOf(before)) continue
+    const last = drawn.get(id)
+    const first = drawn.get(before.id)
+    if (!first && !last) continue
+    try {
+      new StaveTie({
+        firstNote: first?.note ?? null,
+        lastNote: last?.note ?? null,
+        firstIndexes: [(first ?? last)!.index],
+        lastIndexes: [(last ?? first)!.index]
+      })
+        .setContext(ctx)
+        .draw()
+    } catch {
+      /* a tie VexFlow cannot place is skipped, the notes stay */
+    }
+  }
+}
+
 function drawMeasure(
-  ctx: InstanceType<typeof Renderer>['getContext'] extends () => infer T ? T : never,
+  ctx: Ctx,
   piece: Piece,
   bar: ScoreBar,
   previous: ScoreBar | undefined,
   x: number,
   staveWidth: number,
-  active: Set<string>
+  active: Set<string>,
+  drawn: Drawn
 ): void {
   const upperNotes = piece.notes.filter((note) => (note.staff ?? (noteHand(note) === 'right' ? 1 : 2)) === 1)
   const lowerNotes = piece.notes.filter((note) => (note.staff ?? (noteHand(note) === 'right' ? 1 : 2)) === 2)
@@ -182,12 +229,12 @@ function drawMeasure(
   if (!previous) new StaveConnector(treble, bass).setType('singleLeft').setContext(ctx).draw()
 
   const beats = bar.end - bar.start
-  drawStaff(ctx, treble, upperNotes, bar, beats, piece.keySignature, upperClef, 'b/4', active, staveWidth)
-  drawStaff(ctx, bass, lowerNotes, bar, beats, piece.keySignature, lowerClef, 'd/3', active, staveWidth)
+  drawStaff(ctx, treble, upperNotes, bar, beats, piece.keySignature, upperClef, 'b/4', active, staveWidth, drawn)
+  drawStaff(ctx, bass, lowerNotes, bar, beats, piece.keySignature, lowerClef, 'd/3', active, staveWidth, drawn)
 }
 
 function drawStaff(
-  ctx: InstanceType<typeof Renderer>['getContext'] extends () => infer T ? T : never,
+  ctx: Ctx,
   stave: Stave,
   notes: ScoreNote[],
   bar: ScoreBar,
@@ -196,7 +243,8 @@ function drawStaff(
   clef: Clef,
   restKey: string,
   active: Set<string>,
-  staveWidth: number
+  staveWidth: number,
+  drawn: Drawn
 ): void {
   const inBar = notesInWindow(notes, bar.start, bar.end)
   const voiceIds = [...new Set(inBar.map((note) => note.voice ?? 1))].sort((a, b) => a - b)
@@ -206,7 +254,7 @@ function drawStaff(
       const stemUp = index === 0
       const voiceNotes = inBar.filter((note) => (note.voice ?? 1) === voice)
       const ticks = fillTicks(voiceNotes, bar.start, beats, keySignature, restKey, stemUp)
-      const staveNotes = toStaveNotes(ticks, clef, active)
+      const staveNotes = toStaveNotes(ticks, clef, active, drawn)
       const vf = new Voice({ numBeats: bar.signature[0], beatValue: bar.signature[1] }).setStrict(false)
       vf.addTickables(staveNotes)
       return { vf, staveNotes }
